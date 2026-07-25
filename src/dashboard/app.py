@@ -229,6 +229,13 @@ with tab_preseason:
         "doesn't change during the season, so it isn't bundled into the weekly refresh."
     )
 
+    coverage = dash_data.load_preseason_coverage()
+    st.caption(
+        f"Data coverage: {coverage['players_with_stats']}/{coverage['total_players']} current players have "
+        "previous-season stats stored. If this is 0 (or far lower than expected), the fetch above didn't "
+        "actually store data -- everyone will score 0 and the squad below will look arbitrary."
+    )
+
     preseason_budget = st.number_input("Budget (£m)", value=preseason_constants.DEFAULT_BUDGET_TENTHS / 10, step=0.5)
     preseason_section = dash_data.load_preseason_section(budget_tenths=round(preseason_budget * 10))
 

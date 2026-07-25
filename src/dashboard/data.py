@@ -179,6 +179,17 @@ def load_differentials_section(league_id: int, manager_id: int, top_n: int = 10,
 
 
 @st.cache_data(ttl=CACHE_TTL_SECONDS)
+def load_preseason_coverage() -> dict:
+    """How many current players have previous-season stats stored, so a data
+    problem (e.g. the fetch silently storing 0 rows) is visible at a glance
+    rather than only showing up as every player scoring 0."""
+    with connection() as conn:
+        total_players = conn.execute("SELECT COUNT(*) AS n FROM players").fetchone()["n"]
+        players_with_stats = conn.execute("SELECT COUNT(*) AS n FROM player_previous_season_stats").fetchone()["n"]
+    return {"total_players": total_players, "players_with_stats": players_with_stats}
+
+
+@st.cache_data(ttl=CACHE_TTL_SECONDS)
 def load_preseason_section(
     budget_tenths: int = preseason_constants.DEFAULT_BUDGET_TENTHS,
     horizon_gws: int = preseason_constants.FIXTURE_HORIZON_GWS,

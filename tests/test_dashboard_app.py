@@ -55,6 +55,12 @@ def test_dashboard_renders_without_crashing_on_empty_db(empty_db):
     assert "No league pick data yet" in info_texts
     assert "No previous-season stats ingested yet" in info_texts
 
+    # The data-coverage diagnostic should be visible even with an empty DB,
+    # so a silent 0-rows-stored failure is never mistaken for "the squad
+    # optimizer is just being weird".
+    caption_texts = " ".join(c.value for c in at.get("caption"))
+    assert "Data coverage: 0/0 current players" in caption_texts
+
 
 def test_refresh_button_status_messages_survive_the_rerun(empty_db, monkeypatch):
     """`refresh_all` triggers `st.rerun()` right after refreshing -- a naive

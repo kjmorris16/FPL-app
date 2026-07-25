@@ -34,10 +34,20 @@ def _to_float(value):
         return None
 
 
+COMMIT_EVERY_N_PLAYERS = 25
+
+
 def fetch_previous_season_stats(conn, player_ids: list[int], pulled_at: str | None = None) -> int:
     """Stores the most recent entry in each player's `history_past` (FPL
     returns these in chronological order, so the last entry is last season)
     in `player_previous_season_stats`. Returns the number of players stored.
+
+    Commits periodically rather than relying solely on the caller's
+    transaction: this loop makes one API call per player (hundreds of
+    requests), and without an interim commit, any single failure partway
+    through -- a network blip, a rate limit, an unexpected response shape
+    for one player -- would silently roll back every row fetched so far
+    when the connection closes without ever reaching a final commit.
     """
     pulled_at = pulled_at or datetime.now(timezone.utc).isoformat()
     total = len(player_ids)
@@ -86,9 +96,13 @@ def fetch_previous_season_stats(conn, player_ids: list[int], pulled_at: str | No
         )
         stored += 1
 
+        if i % COMMIT_EVERY_N_PLAYERS == 0:
+            conn.commit()
         if i % 50 == 0 or i == total:
             logger.info("Fetched previous-season stats for %d/%d players", i, total)
         time.sleep(REQUEST_DELAY_SECONDS)
+
+    conn.commit()
 
     return stored
 
