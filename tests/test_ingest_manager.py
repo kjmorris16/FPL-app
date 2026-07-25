@@ -85,7 +85,7 @@ def test_fetch_picks_with_fallback_falls_back_on_404(monkeypatch):
 
     monkeypatch.setattr(manager.api_client, "get_entry_picks", fake_get_entry_picks)
 
-    gw, payload = manager._fetch_picks_with_fallback(1213466, 11)
+    gw, payload = manager.fetch_picks_with_fallback(1213466, 11)
     assert gw == 10
     assert calls == [11, 10]
 

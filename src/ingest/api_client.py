@@ -57,9 +57,9 @@ def get_entry_picks(manager_id: int, gw: int) -> dict:
     return _get_json(entry_picks_url(manager_id, gw))
 
 
-def get_league_standings(league_id: int) -> dict:
-    """All manager IDs in a mini-league (classic league standings)."""
-    return _get_json(league_standings_url(league_id))
+def get_league_standings(league_id: int, page: int = 1) -> dict:
+    """A page of a mini-league's classic standings (manager IDs, names, ranks)."""
+    return _get_json(league_standings_url(league_id, page))
 
 
 def get_entry(manager_id: int) -> dict:

@@ -30,11 +30,16 @@ def entry_transfers_url(manager_id: int) -> str:
     return f"{FPL_BASE_URL}/entry/{manager_id}/transfers/"
 
 
-def league_standings_url(league_id: int) -> str:
-    return f"{FPL_BASE_URL}/leagues-classic/{league_id}/standings/"
+def league_standings_url(league_id: int, page: int = 1) -> str:
+    return f"{FPL_BASE_URL}/leagues-classic/{league_id}/standings/?page_standings={page}"
 
 
 # The user's own manager ID, so the Phase 3 weekly routine is a single command.
 DEFAULT_MANAGER_ID = 1213466
+
+# The user's mini-league ID for Phase 5's differential finder. This is a
+# placeholder until the real league is created -- change only this constant
+# when that happens. Nothing else in the codebase should hardcode a league ID.
+DEFAULT_LEAGUE_ID = 103056
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)

@@ -300,6 +300,82 @@ window and the blank week as the top Free Hit window. Not yet run against
 the real season's fixture list, for the same network reason as the phases
 above.
 
+## Phase 5 — Differential finder
+
+Finds good players who are owned by few or none of the managers in *your
+specific mini-league* -- FPL's global ownership % is close to useless for a
+small private league; what matters is whether your actual rivals have a
+player.
+
+### League ID
+
+`DEFAULT_LEAGUE_ID` in `src/config.py` is the single source of truth (currently
+`103056`, a placeholder until the real league exists). Every module reads
+from that one constant (or a `--league-id` CLI override) -- nothing else
+hardcodes it. When the real league is created, change that one line.
+
+### Data pull (`src/differentials/ingestion.py`)
+
+- `fetch_league_managers` -- paginates through `leagues-classic/{id}/standings/`
+  (handles leagues bigger than one results page) and stores every manager in
+  `league_managers`. Raises a clear error pointing at `DEFAULT_LEAGUE_ID` if
+  the league doesn't exist yet, rather than a bare 404 traceback.
+- `fetch_league_picks` -- for every manager in the league, pulls their squad
+  via the same picks-with-fallback logic Phase 3 uses for your own squad
+  (now a public `manager.fetch_picks_with_fallback`, reused rather than
+  duplicated), storing each pick in `league_manager_picks`
+  (`manager_id, gameweek, player_id, is_captain`). A manager whose pull fails
+  is skipped and logged, not fatal to the whole refresh.
+- Rival chip usage reuses Phase 4's `chip_usage` table and
+  `manager.fetch_chip_usage` directly -- it's already keyed by manager_id, so
+  no new ingestion code was needed for that part.
+
+### In-league ownership (`src/differentials/ownership.py`)
+
+Ownership % and captaincy % per player, computed only from *this league's*
+picks at the latest pulled gameweek. The denominator is the number of
+managers actually pulled successfully that gameweek (not the league's
+declared size), so one failed pull doesn't quietly skew every percentage.
+
+### Differential ranking (`src/differentials/finder.py`)
+
+`differential_score = projected_points * (1 - ownership_pct / 100)` -- a
+simple linear inverse-ownership weighting (a great player owned by 0% of
+the league scores its full projection; a great player owned by 100% scores
+zero), not a sophisticated rivals-EV model, but transparent and easy to
+reason about. Critically, the ranking runs over *every* player in the game,
+not just players who appear in someone's picks -- a player nobody in the
+league owns still needs to show up with ownership_pct=0, since that's
+exactly the strongest kind of differential.
+
+Three views, per the brief:
+- `rank_differentials_to_transfer_in` -- best differentials not already in
+  your squad.
+- `rank_my_differentials` -- low-owned players you already own, so you know
+  which of your picks are already paying off as differentials.
+- `rank_high_owned` -- players owned by a lot of the league regardless of
+  how well they're projecting, so you know your shared "safe pick" exposure
+  even when it's underperforming.
+
+### Output
+
+```bash
+python -m src.differentials.cli                        # full report for the configured league
+python -m src.differentials.cli --league-id 12345       # override the league
+python -m src.differentials.cli --top 10 --no-refresh
+```
+
+Prints the top differentials to transfer in (player, 1/3/5 GW projection,
+in-league ownership %, in-league captaincy %), differentials you already
+own, high-owned "safe" picks, and a rival chip-usage summary -- all
+recomputed from scratch each run. Verified end-to-end against a synthetic
+4-manager league (an unowned strong player correctly ranked as the top
+differential, an already-owned low-ownership player surfaced separately, a
+fully-owned player correctly flagged as shared exposure, and a rival's
+already-used Wildcard correctly shown). Not yet run against a real mini-league,
+for the same network reason as the phases above -- and this particular
+league doesn't exist yet regardless.
+
 ## Testing
 
 ```bash
@@ -312,6 +388,6 @@ pytest
 - [x] Phase 2 — Scoring engine (expected points per player, 1/3/5 GW horizons)
 - [x] Phase 3 — Transfer optimizer
 - [x] Phase 4 — Chip planner (double/blank gameweeks, fixture swings)
-- [ ] Phase 5 — Differential finder (mini-league-relative ownership)
+- [x] Phase 5 — Differential finder (mini-league-relative ownership)
 - [ ] Phase 6 — Streamlit dashboard
 - [ ] Phase 7 — Community sentiment cross-check (YouTube transcript ingestion)

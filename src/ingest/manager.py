@@ -91,7 +91,7 @@ def fetch_chip_usage(conn, manager_id: int) -> list[dict]:
     return chips
 
 
-def _fetch_picks_with_fallback(manager_id: int, gw: int, min_gw: int = 1) -> tuple[int, dict]:
+def fetch_picks_with_fallback(manager_id: int, gw: int, min_gw: int = 1) -> tuple[int, dict]:
     """Try `gw`'s picks, falling back to earlier gameweeks if it 404s (e.g. the
     upcoming gameweek's squad hasn't been "saved" as a distinct picks record
     yet)."""
@@ -99,7 +99,7 @@ def _fetch_picks_with_fallback(manager_id: int, gw: int, min_gw: int = 1) -> tup
         return gw, api_client.get_entry_picks(manager_id, gw)
     except RuntimeError:
         if gw > min_gw:
-            return _fetch_picks_with_fallback(manager_id, gw - 1, min_gw)
+            return fetch_picks_with_fallback(manager_id, gw - 1, min_gw)
         raise
 
 
@@ -113,7 +113,7 @@ def fetch_squad_snapshot(conn, manager_id: int, gw: int | None = None) -> dict:
     if gw is None:
         gw = scoring_data_access.get_current_gw(conn)
 
-    picks_gw, picks_payload = _fetch_picks_with_fallback(manager_id, gw)
+    picks_gw, picks_payload = fetch_picks_with_fallback(manager_id, gw)
     history = api_client.get_entry_history(manager_id)
     transfers = api_client.get_entry_transfers(manager_id)
 
