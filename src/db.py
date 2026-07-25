@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS players (
     threat REAL,
     bonus INTEGER,
     bps INTEGER,
+    saves INTEGER,
     status TEXT,
     chance_of_playing_next_round REAL,
     chance_of_playing_this_round REAL,
@@ -101,6 +102,7 @@ CREATE TABLE IF NOT EXISTS gameweek_stats (
     expected_goals_conceded REAL,
     bps INTEGER,
     bonus INTEGER,
+    saves INTEGER,
     influence REAL,
     creativity REAL,
     threat REAL,
@@ -111,9 +113,35 @@ CREATE TABLE IF NOT EXISTS gameweek_stats (
     FOREIGN KEY (player_id) REFERENCES players (id)
 );
 
+CREATE TABLE IF NOT EXISTS player_projections (
+    player_id INTEGER NOT NULL,
+    gameweek INTEGER NOT NULL,
+    projected_points REAL,
+    confidence REAL,
+    computed_at TEXT,
+    PRIMARY KEY (player_id, gameweek),
+    FOREIGN KEY (player_id) REFERENCES players (id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_fixtures_event ON fixtures (event);
 CREATE INDEX IF NOT EXISTS idx_gameweek_stats_gw ON gameweek_stats (gw);
+CREATE INDEX IF NOT EXISTS idx_player_projections_gw ON player_projections (gameweek);
 """
+
+# Columns added after the initial release. Applied to existing databases (created
+# before the column existed) since CREATE TABLE IF NOT EXISTS won't add them.
+_MIGRATIONS = {
+    "players": [("saves", "INTEGER")],
+    "gameweek_stats": [("saves", "INTEGER")],
+}
+
+
+def _apply_migrations(conn: sqlite3.Connection) -> None:
+    for table, columns in _MIGRATIONS.items():
+        existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+        for name, coltype in columns:
+            if name not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {coltype}")
 
 
 def get_connection() -> sqlite3.Connection:
@@ -136,6 +164,7 @@ def connection():
 def init_db() -> None:
     with connection() as conn:
         conn.executescript(SCHEMA)
+        _apply_migrations(conn)
 
 
 if __name__ == "__main__":

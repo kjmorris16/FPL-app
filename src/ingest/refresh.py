@@ -120,6 +120,7 @@ def refresh_players(conn, players: list[dict], pulled_at: str) -> None:
             _to_float(p.get("threat")),
             p.get("bonus"),
             p.get("bps"),
+            p.get("saves"),
             p.get("status"),
             _to_float(p.get("chance_of_playing_next_round")),
             _to_float(p.get("chance_of_playing_this_round")),
@@ -136,9 +137,9 @@ def refresh_players(conn, players: list[dict], pulled_at: str) -> None:
             selected_by_percent, form, total_points, minutes, goals_scored, assists,
             clean_sheets, goals_conceded, expected_goals, expected_assists,
             expected_goal_involvements, expected_goals_conceded, ict_index, influence,
-            creativity, threat, bonus, bps, status, chance_of_playing_next_round,
+            creativity, threat, bonus, bps, saves, status, chance_of_playing_next_round,
             chance_of_playing_this_round, points_per_game, value_season, pulled_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             team_id=excluded.team_id, first_name=excluded.first_name, second_name=excluded.second_name,
             web_name=excluded.web_name, element_type=excluded.element_type, now_cost=excluded.now_cost,
@@ -149,7 +150,7 @@ def refresh_players(conn, players: list[dict], pulled_at: str) -> None:
             expected_goal_involvements=excluded.expected_goal_involvements,
             expected_goals_conceded=excluded.expected_goals_conceded, ict_index=excluded.ict_index,
             influence=excluded.influence, creativity=excluded.creativity, threat=excluded.threat,
-            bonus=excluded.bonus, bps=excluded.bps, status=excluded.status,
+            bonus=excluded.bonus, bps=excluded.bps, saves=excluded.saves, status=excluded.status,
             chance_of_playing_next_round=excluded.chance_of_playing_next_round,
             chance_of_playing_this_round=excluded.chance_of_playing_this_round,
             points_per_game=excluded.points_per_game, value_season=excluded.value_season,
@@ -225,6 +226,7 @@ def refresh_gameweek_history(conn, player_ids: list[int], pulled_at: str) -> Non
                 _to_float(h.get("expected_goals_conceded")),
                 h.get("bps"),
                 h.get("bonus"),
+                h.get("saves"),
                 _to_float(h.get("influence")),
                 _to_float(h.get("creativity")),
                 _to_float(h.get("threat")),
@@ -241,8 +243,8 @@ def refresh_gameweek_history(conn, player_ids: list[int], pulled_at: str) -> Non
                     player_id, gw, fixture_id, opponent_team, was_home, total_points, minutes,
                     goals_scored, assists, clean_sheets, goals_conceded, expected_goals,
                     expected_assists, expected_goal_involvements, expected_goals_conceded,
-                    bps, bonus, influence, creativity, threat, ict_index, value, pulled_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    bps, bonus, saves, influence, creativity, threat, ict_index, value, pulled_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(player_id, gw) DO UPDATE SET
                     fixture_id=excluded.fixture_id, opponent_team=excluded.opponent_team,
                     was_home=excluded.was_home, total_points=excluded.total_points, minutes=excluded.minutes,
@@ -251,9 +253,9 @@ def refresh_gameweek_history(conn, player_ids: list[int], pulled_at: str) -> Non
                     expected_assists=excluded.expected_assists,
                     expected_goal_involvements=excluded.expected_goal_involvements,
                     expected_goals_conceded=excluded.expected_goals_conceded, bps=excluded.bps,
-                    bonus=excluded.bonus, influence=excluded.influence, creativity=excluded.creativity,
-                    threat=excluded.threat, ict_index=excluded.ict_index, value=excluded.value,
-                    pulled_at=excluded.pulled_at
+                    bonus=excluded.bonus, saves=excluded.saves, influence=excluded.influence,
+                    creativity=excluded.creativity, threat=excluded.threat, ict_index=excluded.ict_index,
+                    value=excluded.value, pulled_at=excluded.pulled_at
                 """,
                 rows,
             )

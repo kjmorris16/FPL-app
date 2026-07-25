@@ -52,6 +52,11 @@ Tables:
 - `gameweek_stats` — per-player, per-gameweek actuals (only populated with
   `--with-history`, since it's one API request per player)
 
+`gameweek_stats` and the `players` snapshot both include `saves` (needed for
+Phase 2's goalkeeper save-points projection). If you already have a `data/fpl.db`
+from before that column existed, `init_db()` migrates it automatically the
+next time you run the refresh script or any scoring command.
+
 Run it:
 
 ```bash
@@ -78,6 +83,85 @@ either:
   network policy allows `fantasy.premierleague.com`), or
 - adjust this environment's network policy to allow that host.
 
+## Phase 2 — Scoring engine
+
+Computes an expected-points (xPts) projection per player per gameweek, driven
+by underlying stats rather than past points alone, and stores it in a new
+`player_projections` table (`player_id, gameweek, projected_points, confidence,
+computed_at`). The 1/3/5-gameweek horizon figures used by later phases are just
+sums over consecutive rows in that table (`src/scoring/data_access.py:get_horizon_projection`).
+
+Model inputs, per player per fixture:
+- **Minutes probability** — probability of a 60+ minute appearance, from the
+  last 6 gameweeks' start rate, scaled by an availability multiplier derived
+  from `status` and `chance_of_playing_next_round` (`src/scoring/minutes.py`)
+- **xG90 / xA90 / saves90** — blended 60/40 between a rolling 6-gameweek
+  window and the season-long rate, so one big or bad game doesn't swing the
+  projection too far (`src/scoring/underlying.py`)
+- **Clean-sheet probability** — a Poisson model over expected goals conceded,
+  built from FPL's own team attack/defence strength ratings, split by
+  home/away (`src/scoring/clean_sheets.py`)
+- **Fixture difficulty** — FPL's own 1-5 difficulty rating scales expected
+  attacking output up/down, and inversely scales a goalkeeper's expected
+  shots-faced/saves (`src/scoring/adjustments.py`)
+
+Scoring follows FPL's actual points-per-action values, applied by position
+(`src/scoring/constants.py`, combined in `src/scoring/points_model.py`):
+goals (4/5/6 by position), assists (3, all positions), clean sheets (4 for
+GK/DEF, 1 for MID, 0 for FWD), the -1-per-2-goals-conceded penalty (GK/DEF,
+60+ mins only), and save points (1 per 3 saves, GK only, 60+ mins only via
+minutes-weighting).
+
+Edge cases handled:
+- **New signings / promoted-team players** — below ~2 full games of history,
+  a player's own rate stats are shrunk towards their position's league
+  average (a simple shrinkage estimator: 0 minutes of history = pure
+  position average, full history = pure individual rate) rather than left
+  blank or zeroed out.
+- **Rotation/injury risk** — projections scale with `expected_minutes`, not
+  just the per-90 rate, so a nailed starter and a fringe player with the same
+  underlying numbers get different point totals.
+- **Double gameweeks** — a team with two fixture rows in the same gameweek
+  gets its projection summed across both automatically (fixtures are matched
+  per team per gameweek, so this falls out of the data model rather than
+  needing special-cased logic).
+- **Blank gameweeks** — no fixture that gameweek means `projected_points = 0`
+  with `confidence = 1.0` (it's a certain zero, not a low-confidence guess).
+
+**Confidence** (`src/scoring/confidence.py`) is based on how many minutes of
+recent history back the projection: 0 minutes → a fixed low fallback (0.15);
+6 full gameweeks (540 min) or more → 1.0; scales linearly in between. The CLI
+buckets this into High/Medium/Low for display.
+
+### Backtest
+
+```bash
+# requires gameweek_stats populated for the range being tested:
+python -m src.ingest.refresh --with-history
+
+python -m src.scoring.backtest --start-gw 1 --end-gw 10
+```
+
+For each gameweek in range, recomputes the projection using only data from
+*before* that gameweek (no look-ahead — verified in
+`tests/test_scoring_backtest.py`), compares it to the actual points scored,
+and reports sample size, Pearson correlation, and mean absolute error (MAE)
+across all (player, gameweek) pairs.
+
+**This hasn't been run against real historical data yet** — same network
+restriction as Phase 1 (see below). The backtest logic itself is unit-tested
+against synthetic multi-gameweek data (correlation/MAE math, no-look-ahead
+guarantee), but a real accuracy number requires a `data/fpl.db` with genuine
+`gameweek_stats` history, which needs `--with-history` run somewhere with
+network access to `fantasy.premierleague.com`.
+
+### Quick check
+
+```bash
+python -m src.scoring.cli --recompute          # top 15 for the current/next GW
+python -m src.scoring.cli --gw 5 --top 20
+```
+
 ## Testing
 
 ```bash
@@ -87,7 +171,7 @@ pytest
 ## Roadmap
 
 - [x] Phase 1 — Data pipeline
-- [ ] Phase 2 — Scoring engine (expected points per player, 1/3/5 GW horizons)
+- [x] Phase 2 — Scoring engine (expected points per player, 1/3/5 GW horizons)
 - [ ] Phase 3 — Transfer optimizer
 - [ ] Phase 4 — Chip planner (double/blank gameweeks, fixture swings)
 - [ ] Phase 5 — Differential finder (mini-league-relative ownership)
