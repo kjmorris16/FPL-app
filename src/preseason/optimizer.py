@@ -15,10 +15,27 @@ import pulp
 from src.preseason import constants as c
 
 
-def select_best_squad(candidates: list[dict], budget: int = c.DEFAULT_BUDGET_TENTHS) -> list[dict]:
+def select_best_squad(
+    candidates: list[dict],
+    budget: int = c.DEFAULT_BUDGET_TENTHS,
+    must_include_ids: set[int] | None = None,
+    must_exclude_ids: set[int] | None = None,
+) -> list[dict]:
     """`candidates`: dicts with player_id, element_type, team_id, now_cost,
     and score (maximized, in tenths-of-a-million cost units matching
-    `now_cost`). Returns the selected 15 as a list of the same dicts."""
+    `now_cost`). Returns the selected 15 as a list of the same dicts.
+
+    `must_include_ids`/`must_exclude_ids` let a user force specific players
+    in or out and have the solver re-optimize everyone else around that --
+    rather than a free-form edit of the result table, which could easily
+    violate the budget/position/team-cap constraints on its own. A
+    contradictory or over-constrained request (e.g. excluding so many
+    defenders that 5 can't be filled) surfaces as the same infeasibility
+    error as a too-small budget, rather than a silent wrong answer.
+    """
+    must_include_ids = must_include_ids or set()
+    must_exclude_ids = must_exclude_ids or set()
+
     problem = pulp.LpProblem("preseason_squad", pulp.LpMaximize)
     player_ids = [p["player_id"] for p in candidates]
     choice = pulp.LpVariable.dicts("pick", player_ids, cat="Binary")
@@ -32,6 +49,13 @@ def select_best_squad(candidates: list[dict], budget: int = c.DEFAULT_BUDGET_TEN
 
     for team_id in {p["team_id"] for p in candidates}:
         problem += pulp.lpSum(choice[p["player_id"]] for p in candidates if p["team_id"] == team_id) <= c.MAX_PLAYERS_PER_TEAM
+
+    for player_id in must_include_ids:
+        if player_id in choice:
+            problem += choice[player_id] == 1
+    for player_id in must_exclude_ids:
+        if player_id in choice:
+            problem += choice[player_id] == 0
 
     problem.solve(pulp.PULP_CBC_CMD(msg=False))
 

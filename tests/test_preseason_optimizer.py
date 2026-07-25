@@ -110,6 +110,69 @@ def test_select_best_squad_raises_when_infeasible():
         optimizer.select_best_squad(pool, budget=1)  # impossibly small
 
 
+def test_select_best_squad_must_include_forces_a_player_in():
+    gks = [(1, 10, 5, 45), (2, 11, 4, 45), (3, 12, 3, 45)]
+    defs = [(11 + i, 20 + i, 10 - i, 45) for i in range(6)]
+    mids = [(21 + i, 30 + i, 10 - i, 45) for i in range(6)]
+    fwds = [(31 + i, 40 + i, 10 - i, 45) for i in range(4)]
+    pool = _build_pool(gks, defs, mids, fwds)
+
+    # Player 16 (the weakest DEF, score 5) would normally be excluded --
+    # force it in and confirm the solver still returns a valid, optimal-given-
+    # the-constraint squad rather than erroring or ignoring the request.
+    squad = optimizer.select_best_squad(pool, budget=2000, must_include_ids={16})
+
+    ids = {p["player_id"] for p in squad}
+    assert 16 in ids
+    def_ids = {p["player_id"] for p in squad if p["element_type"] == c.DEF}
+    # Still the best 5 DEF given 16 is forced in: 16 plus the top 4 of the rest.
+    assert def_ids == {11, 12, 13, 14, 16}
+
+
+def test_select_best_squad_must_exclude_forces_a_player_out():
+    gks = [(1, 10, 5, 45), (2, 11, 4, 45), (3, 12, 3, 45)]
+    defs = [(11 + i, 20 + i, 10 - i, 45) for i in range(6)]
+    mids = [(21 + i, 30 + i, 10 - i, 45) for i in range(6)]
+    fwds = [(31 + i, 40 + i, 10 - i, 45) for i in range(4)]
+    pool = _build_pool(gks, defs, mids, fwds)
+
+    # Player 11 is normally the top DEF pick -- exclude it and confirm the
+    # solver backfills with the next-best (12-15) instead.
+    squad = optimizer.select_best_squad(pool, budget=2000, must_exclude_ids={11})
+
+    ids = {p["player_id"] for p in squad}
+    assert 11 not in ids
+    def_ids = {p["player_id"] for p in squad if p["element_type"] == c.DEF}
+    assert def_ids == {12, 13, 14, 15, 16}
+
+
+def test_select_best_squad_must_include_and_exclude_together():
+    gks = [(1, 10, 5, 45), (2, 11, 4, 45), (3, 12, 3, 45)]
+    defs = [(11 + i, 20 + i, 10 - i, 45) for i in range(6)]
+    mids = [(21 + i, 30 + i, 10 - i, 45) for i in range(6)]
+    fwds = [(31 + i, 40 + i, 10 - i, 45) for i in range(4)]
+    pool = _build_pool(gks, defs, mids, fwds)
+
+    squad = optimizer.select_best_squad(pool, budget=2000, must_include_ids={16}, must_exclude_ids={11})
+
+    ids = {p["player_id"] for p in squad}
+    assert 16 in ids
+    assert 11 not in ids
+    def_ids = {p["player_id"] for p in squad if p["element_type"] == c.DEF}
+    assert def_ids == {12, 13, 14, 15, 16}
+
+
+def test_select_best_squad_contradictory_constraints_raise_infeasible():
+    gks = [(1, 10, 5, 45), (2, 11, 4, 45), (3, 12, 3, 45)]
+    defs = [(11 + i, 20 + i, 10 - i, 45) for i in range(6)]
+    mids = [(21 + i, 30 + i, 10 - i, 45) for i in range(6)]
+    fwds = [(31 + i, 40 + i, 10 - i, 45) for i in range(4)]
+    pool = _build_pool(gks, defs, mids, fwds)
+
+    with pytest.raises(RuntimeError, match="No feasible squad"):
+        optimizer.select_best_squad(pool, budget=2000, must_include_ids={11}, must_exclude_ids={11})
+
+
 def _squad_of_15(scores_by_pos):
     """scores_by_pos: {element_type: [scores...]} with exactly the right counts."""
     pool = []

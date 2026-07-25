@@ -190,12 +190,31 @@ def load_preseason_coverage() -> dict:
 
 
 @st.cache_data(ttl=CACHE_TTL_SECONDS)
+def load_player_directory() -> dict[int, dict]:
+    """All current players' id -> {web_name, element_type, team_name}, for
+    UI widgets (search/select) that don't need full pre-season scoring."""
+    with connection() as conn:
+        rows = conn.execute(
+            "SELECT p.id, p.web_name, p.element_type, COALESCE(t.short_name, t.name) AS team_name "
+            "FROM players p LEFT JOIN teams t ON t.id = p.team_id"
+        ).fetchall()
+    return {row["id"]: dict(row) for row in rows}
+
+
+@st.cache_data(ttl=CACHE_TTL_SECONDS)
 def load_preseason_section(
     budget_tenths: int = preseason_constants.DEFAULT_BUDGET_TENTHS,
     horizon_gws: int = preseason_constants.FIXTURE_HORIZON_GWS,
+    must_include_ids: tuple = (),
+    must_exclude_ids: tuple = (),
 ) -> dict | None:
     """None if no previous-season stats have been ingested yet; a dict with an
-    "error" key if a full 15-man squad can't be built within budget."""
+    "error" key if a full 15-man squad can't be built within budget (this
+    includes contradictory must-include/must-exclude requests).
+
+    `must_include_ids`/`must_exclude_ids` are tuples (not sets) so this stays
+    hashable for st.cache_data.
+    """
     with connection() as conn:
         scores = preseason_scoring.compute_preseason_scores(conn, start_gw=preseason_constants.START_GW, horizon_gws=horizon_gws)
         if not scores:
@@ -218,7 +237,10 @@ def load_preseason_section(
     ]
 
     try:
-        squad = preseason_optimizer.select_best_squad(candidates, budget=budget_tenths)
+        squad = preseason_optimizer.select_best_squad(
+            candidates, budget=budget_tenths,
+            must_include_ids=set(must_include_ids), must_exclude_ids=set(must_exclude_ids),
+        )
     except RuntimeError as exc:
         return {"error": str(exc)}
 
@@ -233,5 +255,6 @@ def load_preseason_section(
         "captain": ranked_xi[0],
         "vice": ranked_xi[1],
         "total_cost": sum(p["now_cost"] for p in squad),
+        "total_score": round(sum(p["score"] for p in squad), 1),
         "budget": budget_tenths,
     }

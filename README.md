@@ -526,8 +526,18 @@ python -m src.preseason.cli --budget 98.5 --horizon 3
 The dashboard's fifth tab ("Pre-Season Squad") shows the same thing with a
 clear banner: *"Based on last season's data and pre-season signal -- treat
 as a starting point, not a certainty, until live data arrives after GW1."*
-Squad grouped by position (price, score, confidence, notes), starting
-XI + formation, bench, and captain/vice.
+Squad grouped by position (price, score, confidence, notes), an overall
+squad total-score metric above the table, starting XI + formation, bench,
+and captain/vice.
+
+**"Must include" / "must exclude" player pickers** let you force specific
+players in or out and have the ILP solver rebuild the rest of the squad
+(and total score) around that constraint -- rather than a free-form edit of
+the result table, which could easily produce an invalid squad (wrong
+budget, too many from one team, wrong position counts) on its own. A
+contradictory request (including and excluding the same player, or
+excluding so many of one position that the quota can't be filled) surfaces
+the same infeasibility error as a too-small budget.
 
 Verified end-to-end against a synthetic 8-team league (correct budget/
 position/team-cap enforcement in the ILP, correct formation and bench

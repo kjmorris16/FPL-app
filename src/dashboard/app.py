@@ -237,7 +237,34 @@ with tab_preseason:
     )
 
     preseason_budget = st.number_input("Budget (£m)", value=preseason_constants.DEFAULT_BUDGET_TENTHS / 10, step=0.5)
-    preseason_section = dash_data.load_preseason_section(budget_tenths=round(preseason_budget * 10))
+
+    player_directory = dash_data.load_player_directory()
+    label_by_id = {
+        pid: f"{info['web_name']} ({POSITION_NAMES.get(info['element_type'], '?')}, {info['team_name'] or '?'}) #{pid}"
+        for pid, info in player_directory.items()
+    }
+    id_by_label = {label: pid for pid, label in label_by_id.items()}
+    sorted_labels = sorted(id_by_label, key=lambda label: player_directory[id_by_label[label]]["web_name"])
+
+    pick_col, drop_col = st.columns(2)
+    with pick_col:
+        must_include_labels = st.multiselect(
+            "Must include these players", options=sorted_labels, key="preseason_must_include",
+            help="Force the optimizer to keep these players and rebuild the rest of the squad around them.",
+        )
+    with drop_col:
+        must_exclude_labels = st.multiselect(
+            "Must exclude these players", options=sorted_labels, key="preseason_must_exclude",
+            help="Force the optimizer to leave these players out entirely.",
+        )
+    must_include_ids = tuple(sorted(id_by_label[label] for label in must_include_labels))
+    must_exclude_ids = tuple(sorted(id_by_label[label] for label in must_exclude_labels))
+
+    preseason_section = dash_data.load_preseason_section(
+        budget_tenths=round(preseason_budget * 10),
+        must_include_ids=must_include_ids,
+        must_exclude_ids=must_exclude_ids,
+    )
 
     if preseason_section is None:
         st.info(
@@ -251,9 +278,10 @@ with tab_preseason:
         players_by_id = preseason_section["players_by_id"]
         teams = preseason_section["teams"]
 
-        col1, col2 = st.columns(2)
-        col1.metric("Squad cost", f"£{preseason_section['total_cost'] / 10:.1f}m")
-        col2.metric("Budget", f"£{preseason_section['budget'] / 10:.1f}m")
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Squad total score", preseason_section["total_score"])
+        col2.metric("Squad cost", f"£{preseason_section['total_cost'] / 10:.1f}m")
+        col3.metric("Budget", f"£{preseason_section['budget'] / 10:.1f}m")
 
         def _preseason_row(p):
             info = players_by_id[p["player_id"]]
