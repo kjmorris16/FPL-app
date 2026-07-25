@@ -55,3 +55,38 @@ def test_get_preseason_creator_notes_when_table_exists(db_conn):
     notes = data_access.get_preseason_creator_notes(db_conn, target_gw=1)
     assert notes[101][0]["sentiment"] == "buy"
     assert notes[101][0]["creator"] == "FPL Raptor"
+
+
+def _insert_fixture(conn, fixture_id, event, team_h, team_a, h_diff=3, a_diff=3):
+    conn.execute(
+        "INSERT INTO fixtures (id, event, team_h, team_a, team_h_difficulty, team_a_difficulty) VALUES (?, ?, ?, ?, ?, ?)",
+        (fixture_id, event, team_h, team_a, h_diff, a_diff),
+    )
+
+
+def test_get_team_fixture_ticker_basic(db_conn):
+    db_conn.execute("INSERT INTO teams (id, name) VALUES (1, 'Home'), (2, 'Away')")
+    _insert_fixture(db_conn, 1, event=1, team_h=1, team_a=2, h_diff=2, a_diff=4)
+    _insert_fixture(db_conn, 2, event=2, team_h=2, team_a=1, h_diff=3, a_diff=3)
+    db_conn.commit()
+
+    ticker = data_access.get_team_fixture_ticker(db_conn, start_gw=1, num_gws=3)
+    assert ticker[1] == ["2", "3", "-"]  # GW1 home easy, GW2 away neutral, GW3 blank
+    assert ticker[2] == ["4", "3", "-"]
+
+
+def test_get_team_fixture_ticker_double_gameweek_joins_difficulties(db_conn):
+    db_conn.execute("INSERT INTO teams (id, name) VALUES (1, 'Home'), (2, 'Away'), (3, 'Third')")
+    _insert_fixture(db_conn, 1, event=1, team_h=1, team_a=2, h_diff=2, a_diff=4)
+    _insert_fixture(db_conn, 2, event=1, team_h=3, team_a=1, h_diff=3, a_diff=5)
+    db_conn.commit()
+
+    ticker = data_access.get_team_fixture_ticker(db_conn, start_gw=1, num_gws=1)
+    assert ticker[1] == ["2/5"]
+
+
+def test_get_team_fixture_ticker_blank_for_all_teams_with_no_fixtures(db_conn):
+    db_conn.execute("INSERT INTO teams (id, name) VALUES (1, 'Home')")
+    db_conn.commit()
+    ticker = data_access.get_team_fixture_ticker(db_conn, start_gw=1, num_gws=2)
+    assert ticker[1] == ["-", "-"]

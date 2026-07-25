@@ -526,9 +526,13 @@ python -m src.preseason.cli --budget 98.5 --horizon 3
 The dashboard's fifth tab ("Pre-Season Squad") shows the same thing with a
 clear banner: *"Based on last season's data and pre-season signal -- treat
 as a starting point, not a certainty, until live data arrives after GW1."*
-Squad grouped by position (price, score, confidence, notes), an overall
-squad total-score metric above the table, starting XI + formation, bench,
-and captain/vice.
+Squad grouped by position (price, score, confidence, next-3-gameweek
+fixture difficulty per team, notes), an overall squad total-score metric
+above the table, starting XI + formation, bench, and captain/vice. Fixture
+difficulty (`src/preseason/data_access.py:get_team_fixture_ticker`) reuses
+the same team-fixtures lookup the scoring engine itself relies on, so what's
+displayed always matches what actually drove the score -- a double
+gameweek shows both fixtures' difficulty joined with "/", a blank shows "-".
 
 **"Must include" / "must exclude" player pickers** let you force specific
 players in or out and have the ILP solver rebuild the rest of the squad

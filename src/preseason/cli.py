@@ -8,18 +8,22 @@ relying on it for a real GW1 squad.
 import argparse
 
 from src.db import connection
-from src.preseason import constants as c, optimizer, scoring
+from src.preseason import constants as c, data_access, optimizer, scoring
 
 
 def _format_price(tenths: int) -> str:
     return f"£{tenths / 10:.1f}m"
 
 
-def _print_player_row(player: dict, players_by_id: dict, teams: dict) -> None:
+def _print_player_row(player: dict, players_by_id: dict, teams: dict, fixture_ticker: dict) -> None:
     info = players_by_id.get(player["player_id"], {})
     team = teams.get(info.get("team_id"), "?")
     name = info.get("web_name", f"#{player['player_id']}")
-    print(f"    {name:<20}{team:<6}{_format_price(info.get('now_cost', 0)):>8}  score={player['score']:>6.2f}  conf={player['confidence']:.2f}")
+    fixtures = "-".join(fixture_ticker.get(info.get("team_id"), []))
+    print(
+        f"    {name:<20}{team:<6}{_format_price(info.get('now_cost', 0)):>8}  score={player['score']:>6.2f}  "
+        f"conf={player['confidence']:.2f}  fixtures={fixtures}"
+    )
 
 
 def run(budget: int = c.DEFAULT_BUDGET_TENTHS, horizon_gws: int = c.FIXTURE_HORIZON_GWS) -> None:
@@ -27,6 +31,7 @@ def run(budget: int = c.DEFAULT_BUDGET_TENTHS, horizon_gws: int = c.FIXTURE_HORI
         scores = scoring.compute_preseason_scores(conn, start_gw=c.START_GW, horizon_gws=horizon_gws)
         players_by_id = {row["id"]: dict(row) for row in conn.execute("SELECT * FROM players")}
         teams = {row["id"]: (row["short_name"] or row["name"]) for row in conn.execute("SELECT id, name, short_name FROM teams")}
+        fixture_ticker = data_access.get_team_fixture_ticker(conn, c.START_GW, c.FIXTURE_TICKER_GWS)
 
     candidates = [
         {
@@ -45,22 +50,23 @@ def run(budget: int = c.DEFAULT_BUDGET_TENTHS, horizon_gws: int = c.FIXTURE_HORI
     squad = optimizer.select_best_squad(candidates, budget=budget)
     lineup = optimizer.select_starting_xi(squad)
 
-    print(f"\nSuggested GW1 squad (budget £{budget / 10:.1f}m)\n")
+    total_score = round(sum(p["score"] for p in squad), 2)
+    print(f"\nSuggested GW1 squad (budget £{budget / 10:.1f}m) -- total score: {total_score}\n")
     for position, label in ((c.GK, "Goalkeepers"), (c.DEF, "Defenders"), (c.MID, "Midfielders"), (c.FWD, "Forwards")):
         print(f"{label}:")
         for player in sorted((p for p in squad if p["element_type"] == position), key=lambda p: p["score"], reverse=True):
-            _print_player_row(player, players_by_id, teams)
+            _print_player_row(player, players_by_id, teams, fixture_ticker)
 
     total_cost = sum(players_by_id[p["player_id"]]["now_cost"] or 0 for p in squad)
     print(f"\nTotal cost: {_format_price(total_cost)}  (bank: {_format_price(budget - total_cost)})")
 
     print(f"\nSuggested starting XI ({lineup['formation']}):")
     for player in lineup["starting_xi"]:
-        _print_player_row(player, players_by_id, teams)
+        _print_player_row(player, players_by_id, teams, fixture_ticker)
 
     print("\nBench:")
     for player in lineup["bench"]:
-        _print_player_row(player, players_by_id, teams)
+        _print_player_row(player, players_by_id, teams, fixture_ticker)
 
     ranked_xi = sorted(lineup["starting_xi"], key=lambda p: p["score"], reverse=True)
     captain, vice = ranked_xi[0], ranked_xi[1]

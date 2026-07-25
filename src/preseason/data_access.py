@@ -1,9 +1,36 @@
 """Read helpers for the pre-season squad selector."""
 import sqlite3
 
+from src.scoring import data_access as scoring_data_access
+
 
 def get_previous_season_stats(conn: sqlite3.Connection) -> dict[int, dict]:
     return {row["player_id"]: dict(row) for row in conn.execute("SELECT * FROM player_previous_season_stats")}
+
+
+def get_team_fixture_ticker(conn: sqlite3.Connection, start_gw: int, num_gws: int) -> dict[int, list[str]]:
+    """team_id -> one difficulty label per gameweek in
+    [start_gw, start_gw + num_gws - 1]. A double gameweek joins both
+    fixtures' difficulty with "/"; a blank gameweek shows "-". Reuses the
+    same team-fixtures lookup Phase 2's scoring engine and the transfer/chip
+    modules already rely on, so this always matches what actually drove the
+    pre-season score.
+    """
+    fixtures_map = scoring_data_access.get_team_fixtures_map(conn, start_gw, start_gw + num_gws - 1)
+    all_team_ids = [row["id"] for row in conn.execute("SELECT id FROM teams")]
+
+    ticker = {}
+    for team_id in all_team_ids:
+        team_fixtures = fixtures_map.get(team_id, {})
+        labels = []
+        for gw in range(start_gw, start_gw + num_gws):
+            fixtures_this_gw = team_fixtures.get(gw, [])
+            if not fixtures_this_gw:
+                labels.append("-")
+            else:
+                labels.append("/".join(str(f["difficulty"] if f["difficulty"] is not None else "?") for f in fixtures_this_gw))
+        ticker[team_id] = labels
+    return ticker
 
 
 def _table_exists(conn: sqlite3.Connection, table_name: str) -> bool:

@@ -13,7 +13,7 @@ import streamlit as st
 from src.chips import availability as chip_availability, constants as chip_constants, planner as chip_planner
 from src.db import connection
 from src.differentials import data_access as diff_data_access, finder as diff_finder
-from src.preseason import constants as preseason_constants, optimizer as preseason_optimizer, scoring as preseason_scoring
+from src.preseason import constants as preseason_constants, data_access as preseason_data_access, optimizer as preseason_optimizer, scoring as preseason_scoring
 from src.scoring import data_access as scoring_data_access
 from src.transfers import captain as transfer_captain, constants as transfer_constants, data_access as transfers_data_access, optimizer, rationale
 
@@ -187,6 +187,13 @@ def load_preseason_coverage() -> dict:
         total_players = conn.execute("SELECT COUNT(*) AS n FROM players").fetchone()["n"]
         players_with_stats = conn.execute("SELECT COUNT(*) AS n FROM player_previous_season_stats").fetchone()["n"]
     return {"total_players": total_players, "players_with_stats": players_with_stats}
+
+
+@st.cache_data(ttl=CACHE_TTL_SECONDS)
+def load_fixture_ticker(start_gw: int = preseason_constants.START_GW, num_gws: int = preseason_constants.FIXTURE_TICKER_GWS) -> dict[int, list[str]]:
+    """team_id -> list of per-gameweek fixture difficulty labels."""
+    with connection() as conn:
+        return preseason_data_access.get_team_fixture_ticker(conn, start_gw, num_gws)
 
 
 @st.cache_data(ttl=CACHE_TTL_SECONDS)

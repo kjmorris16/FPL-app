@@ -13,6 +13,7 @@ MAX_PLAYERS_PER_TEAM = 3
 
 FIXTURE_HORIZON_GWS = 5  # "opening 3-5 gameweek difficulty" per the brief
 START_GW = 1
+FIXTURE_TICKER_GWS = 3  # how many upcoming gameweeks' difficulty to display per team
 
 # A full Premier League season's minutes (38 games), used as the denominator
 # for a player's last-season minutes-share.

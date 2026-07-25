@@ -277,23 +277,30 @@ with tab_preseason:
         squad = preseason_section["squad"]
         players_by_id = preseason_section["players_by_id"]
         teams = preseason_section["teams"]
+        fixture_ticker = dash_data.load_fixture_ticker()
+        ticker_gw_labels = [f"GW{preseason_constants.START_GW + i}" for i in range(preseason_constants.FIXTURE_TICKER_GWS)]
 
         col1, col2, col3 = st.columns(3)
         col1.metric("Squad total score", preseason_section["total_score"])
         col2.metric("Squad cost", f"£{preseason_section['total_cost'] / 10:.1f}m")
         col3.metric("Budget", f"£{preseason_section['budget'] / 10:.1f}m")
+        st.caption("Fixture difficulty: 1 = easiest, 5 = hardest. \"-\" = blank gameweek, \"a/b\" = double gameweek.")
 
         def _preseason_row(p):
             info = players_by_id[p["player_id"]]
-            return {
+            difficulties = fixture_ticker.get(p["team_id"], ["-"] * len(ticker_gw_labels))
+            row = {
                 "Player": info["web_name"],
                 "Pos": POSITION_NAMES.get(p["element_type"], "?"),
                 "Team": teams.get(p["team_id"], "?"),
                 "Price": f"£{(p['now_cost'] or 0) / 10:.1f}m",
                 "Score": round(p["score"], 1),
                 "Confidence": confidence_label(p["confidence"]),
-                "Notes": "; ".join(p.get("notes", [])),
             }
+            for label, difficulty in zip(ticker_gw_labels, difficulties):
+                row[label] = difficulty
+            row["Notes"] = "; ".join(p.get("notes", []))
+            return row
 
         st.markdown("**Suggested 15-man squad**")
         squad_rows = [_preseason_row(p) for p in sorted(squad, key=lambda p: (p["element_type"], -p["score"]))]
