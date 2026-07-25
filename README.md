@@ -234,6 +234,72 @@ same network restriction as Phases 1-2: this sandbox can't reach
 `fantasy.premierleague.com`, so pulling manager ID 1213466's actual squad
 needs to happen from an environment with network access.
 
+## Phase 4 — Chip timing planner
+
+Recommends the best gameweeks to play Wildcard, Bench Boost, Triple
+Captain, and Free Hit, based on fixture swings (double/blank gameweeks,
+multi-gameweek runs of easy/hard opponents) rather than just current form.
+
+### Chip status (`chip_usage` table)
+
+`entry/{id}/history/`'s chip list is stored via `src/ingest/manager.py:fetch_chip_usage`
+(also captured for free as part of `fetch_squad_snapshot`, which already
+pulls that endpoint for the free-transfer simulation -- no extra API call).
+Wildcard is handled as 2-per-season, 1-per-half (`src/chips/availability.py`);
+Bench Boost, Triple Captain, and Free Hit are 1-per-season. The public API
+doesn't expose the exact gameweek Wildcard resets for the second half, so the
+halfway point (`WILDCARD_HALF_CUTOFF_GW`, default 19) is a documented
+approximation, not something read from the API.
+
+### Fixture swing detection (`src/chips/fixture_swings.py`)
+
+Reuses Phase 2's `scoring.data_access.get_team_fixtures_map`, so DGW/BGW
+detection and difficulty ratings stay consistent with the scoring model:
+- **Double/blank gameweeks** -- a team with 2+ fixtures, or 0 fixtures, in a
+  given gameweek.
+- **Good/bad fixture runs** -- a 3+ gameweek stretch (tunable) where a team's
+  average fixture difficulty is favourable (<= 2.4) or tough (>= 3.6).
+
+### Chip value simulation (`src/chips/valuation.py`)
+
+- **Bench Boost** -- summed projected points of your *current* squad
+  snapshot's bench (squad positions 12-15) for each candidate gameweek.
+- **Triple Captain** -- the marginal gain from tripling instead of doubling
+  your best starting-XI captain option that week (exactly 1x their projected
+  points, since normal captaincy already doubles). A DGW premium player's
+  single-gameweek projection already includes both fixtures, so DGW weeks
+  naturally score highest without special-casing.
+- **Wildcard** -- not scored directly (it rebuilds the whole squad); instead
+  a "window score" counts how many teams start a good fixture run, or have
+  an upcoming double gameweek, right after each candidate week -- a high
+  score means the player pool becomes a lot more attractive right after,
+  which is exactly when rebuilding pays off.
+- **Free Hit** -- counts how many of your own squad's players have no
+  fixture in a candidate blank gameweek (falls back to a leaguewide blank
+  count if no squad snapshot exists yet).
+
+Bench Boost and Triple Captain assume your *current* bench/starting XI still
+holds at the target gameweek -- a real squad will likely change via future
+transfers, so values further out in the calendar are a rough guide, most
+reliable near-term. Re-run closer to the target week for accuracy.
+
+### Output
+
+```bash
+python -m src.chips.cli                    # top 3 candidate GWs per available chip
+python -m src.chips.cli --horizon 15 --top 5
+python -m src.chips.cli --full-calendar    # also print every GW's DGW/BGW notes
+```
+
+Recalculates from scratch each run (refetches chip usage, rescans the
+current fixture list), so postponements or rescheduled DGWs are picked up
+automatically next time it's run. Verified end-to-end against a synthetic
+season with a planted DGW, a run of easy fixtures, and a blank gameweek: the
+planner correctly picked the DGW week as the top Bench Boost/Triple Captain
+window and the blank week as the top Free Hit window. Not yet run against
+the real season's fixture list, for the same network reason as the phases
+above.
+
 ## Testing
 
 ```bash
@@ -245,7 +311,7 @@ pytest
 - [x] Phase 1 — Data pipeline
 - [x] Phase 2 — Scoring engine (expected points per player, 1/3/5 GW horizons)
 - [x] Phase 3 — Transfer optimizer
-- [ ] Phase 4 — Chip planner (double/blank gameweeks, fixture swings)
+- [x] Phase 4 — Chip planner (double/blank gameweeks, fixture swings)
 - [ ] Phase 5 — Differential finder (mini-league-relative ownership)
 - [ ] Phase 6 — Streamlit dashboard
 - [ ] Phase 7 — Community sentiment cross-check (YouTube transcript ingestion)

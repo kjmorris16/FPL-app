@@ -144,6 +144,72 @@ def test_fetch_squad_snapshot_stores_snapshot_and_returns_dict(db_conn, monkeypa
     assert len(stored_squad_rows) == 2
 
 
+def test_fetch_chip_usage_stores_rows(db_conn, monkeypatch):
+    def fake_get_entry_history(manager_id):
+        return {"current": [], "chips": [{"name": "wildcard", "event": 7, "time": "2026-01-01T00:00:00Z"}]}
+
+    monkeypatch.setattr(manager.api_client, "get_entry_history", fake_get_entry_history)
+
+    chips = manager.fetch_chip_usage(db_conn, manager_id=1213466)
+    db_conn.commit()
+
+    assert chips == [{"name": "wildcard", "event": 7, "time": "2026-01-01T00:00:00Z"}]
+    rows = db_conn.execute("SELECT * FROM chip_usage WHERE manager_id = 1213466").fetchall()
+    assert len(rows) == 1
+    assert rows[0]["chip_name"] == "wildcard"
+    assert rows[0]["event"] == 7
+
+
+def test_fetch_chip_usage_supports_two_wildcards(db_conn, monkeypatch):
+    def fake_get_entry_history(manager_id):
+        return {
+            "current": [],
+            "chips": [
+                {"name": "wildcard", "event": 7, "time": "2026-01-01T00:00:00Z"},
+                {"name": "wildcard", "event": 25, "time": "2026-03-01T00:00:00Z"},
+            ],
+        }
+
+    monkeypatch.setattr(manager.api_client, "get_entry_history", fake_get_entry_history)
+    manager.fetch_chip_usage(db_conn, manager_id=1213466)
+    db_conn.commit()
+
+    rows = db_conn.execute(
+        "SELECT event FROM chip_usage WHERE manager_id = 1213466 AND chip_name = 'wildcard' ORDER BY event"
+    ).fetchall()
+    assert [r["event"] for r in rows] == [7, 25]
+
+
+def test_fetch_chip_usage_no_chips_stores_nothing(db_conn, monkeypatch):
+    monkeypatch.setattr(manager.api_client, "get_entry_history", lambda manager_id: {"current": [], "chips": []})
+    manager.fetch_chip_usage(db_conn, manager_id=1213466)
+    db_conn.commit()
+    assert db_conn.execute("SELECT * FROM chip_usage").fetchall() == []
+
+
+def test_fetch_squad_snapshot_also_stores_chip_usage(db_conn, monkeypatch):
+    db_conn.execute("INSERT INTO teams (id, name) VALUES (1, 'Home United')")
+    db_conn.execute("INSERT INTO players (id, team_id, element_type, web_name, now_cost) VALUES (101, 1, 4, 'Sharpe', 90)")
+    db_conn.commit()
+
+    monkeypatch.setattr(
+        manager.api_client, "get_entry_picks",
+        lambda manager_id, gw: {"entry_history": {"bank": 0, "value": 1000}, "picks": []},
+    )
+    monkeypatch.setattr(
+        manager.api_client, "get_entry_history",
+        lambda manager_id: {"current": [], "chips": [{"name": "bboost", "event": 9, "time": "2026-01-01T00:00:00Z"}]},
+    )
+    monkeypatch.setattr(manager.api_client, "get_entry_transfers", lambda manager_id: [])
+
+    manager.fetch_squad_snapshot(db_conn, manager_id=1213466, gw=10)
+    db_conn.commit()
+
+    rows = db_conn.execute("SELECT * FROM chip_usage WHERE manager_id = 1213466").fetchall()
+    assert len(rows) == 1
+    assert rows[0]["chip_name"] == "bboost"
+
+
 def test_fetch_squad_snapshot_is_idempotent_upsert(db_conn, monkeypatch):
     db_conn.execute("INSERT INTO teams (id, name) VALUES (1, 'Home United')")
     db_conn.execute("INSERT INTO players (id, team_id, element_type, web_name, now_cost) VALUES (101, 1, 4, 'Sharpe', 90)")

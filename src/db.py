@@ -148,10 +148,19 @@ CREATE TABLE IF NOT EXISTS my_squad_history (
     FOREIGN KEY (player_id) REFERENCES players (id)
 );
 
+CREATE TABLE IF NOT EXISTS chip_usage (
+    manager_id INTEGER NOT NULL,
+    chip_name TEXT NOT NULL,
+    event INTEGER NOT NULL,
+    pulled_at TEXT,
+    PRIMARY KEY (manager_id, chip_name, event)
+);
+
 CREATE INDEX IF NOT EXISTS idx_fixtures_event ON fixtures (event);
 CREATE INDEX IF NOT EXISTS idx_gameweek_stats_gw ON gameweek_stats (gw);
 CREATE INDEX IF NOT EXISTS idx_player_projections_gw ON player_projections (gameweek);
 CREATE INDEX IF NOT EXISTS idx_my_squad_history_manager_gw ON my_squad_history (manager_id, gw);
+CREATE INDEX IF NOT EXISTS idx_chip_usage_manager ON chip_usage (manager_id);
 """
 
 # Columns added after the initial release. Applied to existing databases (created

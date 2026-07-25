@@ -69,6 +69,28 @@ def compute_free_transfers(history_current: list[dict], chips: list[dict], upcom
     return max(1, min(MAX_FREE_TRANSFERS, ft))
 
 
+def _store_chip_usage(conn, manager_id: int, chips: list[dict], pulled_at: str) -> None:
+    if not chips:
+        return
+    conn.executemany(
+        """
+        INSERT INTO chip_usage (manager_id, chip_name, event, pulled_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(manager_id, chip_name, event) DO UPDATE SET pulled_at=excluded.pulled_at
+        """,
+        [(manager_id, chip["name"], chip["event"], pulled_at) for chip in chips],
+    )
+
+
+def fetch_chip_usage(conn, manager_id: int) -> list[dict]:
+    """Pull and store chip usage on its own, without a full squad snapshot
+    (used by the chip planner when you just want to check chip status)."""
+    history = api_client.get_entry_history(manager_id)
+    chips = history.get("chips", [])
+    _store_chip_usage(conn, manager_id, chips, datetime.now(timezone.utc).isoformat())
+    return chips
+
+
 def _fetch_picks_with_fallback(manager_id: int, gw: int, min_gw: int = 1) -> tuple[int, dict]:
     """Try `gw`'s picks, falling back to earlier gameweeks if it 404s (e.g. the
     upcoming gameweek's squad hasn't been "saved" as a distinct picks record
@@ -123,6 +145,7 @@ def fetch_squad_snapshot(conn, manager_id: int, gw: int | None = None) -> dict:
         )
 
     pulled_at = datetime.now(timezone.utc).isoformat()
+    _store_chip_usage(conn, manager_id, history.get("chips", []), pulled_at)
 
     conn.execute(
         """
