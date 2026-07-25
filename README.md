@@ -162,6 +162,78 @@ python -m src.scoring.cli --recompute          # top 15 for the current/next GW
 python -m src.scoring.cli --gw 5 --top 20
 ```
 
+## Phase 3 — Transfer optimizer
+
+Pulls your actual squad (manager ID `1213466` by default, see
+`src/config.py:DEFAULT_MANAGER_ID`) from the FPL API each time it runs and
+stores a snapshot (`my_manager_snapshot`: bank/squad value/free transfers;
+`my_squad_history`: each of your 15 players, their purchase/sell price, and
+captain/vice flags), so squad changes are tracked gameweek by gameweek. It
+then ranks 0/1/2-transfer combinations by projected point gain over the next
+1/3/5 gameweeks, using Phase 2's `player_projections`.
+
+### Squad data (`src/ingest/manager.py`)
+
+The public FPL API has no login-gated endpoint with exact sell prices, so
+they're reconstructed:
+- **Sell price** follows FPL's real rule -- keep half of any risen value
+  (rounded down), eat the full loss if the price dropped -- computed from a
+  player's most recent buy price found in `entry/{id}/transfers/`. A squad
+  player who's never been re-bought this season (still your original
+  gameweek-1 pick) has no purchase price in the public API; that case falls
+  back to their current price (i.e. assumes zero banked profit), a
+  conservative approximation that can only understate, never overstate,
+  your available budget.
+- **Free transfers** aren't returned directly either, so they're simulated
+  forward from `entry/{id}/history/`'s per-gameweek transfer counts and
+  costs (a transfer's cost is always a multiple of -4, so hits taken =
+  cost / 4), skipping any gameweek a Wildcard or Free Hit was played (chip
+  weeks don't touch the free-transfer counter). This is a best-effort
+  reconstruction of the rollover-to-5 rule -- override it with
+  `--free-transfers` if it ever drifts from what the FPL app shows you.
+
+### Optimizer (`src/transfers/optimizer.py`)
+
+- Only same-position replacements are considered (a documented
+  simplification -- see the module docstring for why).
+- Respects squad composition (2 GK / 5 DEF / 5 MID / 3 FWD is fixed by
+  same-position swaps), the max-3-players-per-team rule, and budget (bank +
+  sell price of whoever's being replaced).
+- Evaluates 0, 1, and 2-transfer combinations. Two-transfer combos are built
+  from each outgoing player's own shortlist of best replacements rather than
+  an exhaustive pairwise search (`TOP_SINGLE_SWAPS_PER_PLAYER` in
+  `constants.py`) -- fast, but can in theory miss a combo where pooling two
+  sale prices unlocks an upgrade unaffordable alone.
+- A hit-taking combo is only kept if its projected gain over the 5-gameweek
+  decision horizon clears the -4-per-hit cost by a margin (1.5x, tunable via
+  `HIT_MARGIN_MULTIPLIER`) -- a combo that merely breaks even on a hit isn't
+  a real recommendation, so it's dropped rather than ranked low.
+
+### Captain and rationale
+
+The captain/vice-captain recommendation (`src/transfers/captain.py`) is
+simply the two highest single-gameweek projected-points players in the
+*resulting* squad (after the top transfer combo). The rationale
+(`src/transfers/rationale.py`) is templated, not LLM-generated -- it's built
+directly from the same gain and fixture-difficulty numbers the optimizer
+already computed, which keeps it reproducible and testable.
+
+### Weekly routine
+
+```bash
+python -m src.transfers.cli                     # pulls your squad, ranks transfers, prints captain pick
+python -m src.transfers.cli --gw 12
+python -m src.transfers.cli --free-transfers 2   # override the reconstructed FT count
+python -m src.transfers.cli --no-refresh-squad   # reuse the last-pulled squad snapshot (no API call)
+```
+
+This has been verified end-to-end against a synthetic in-memory dataset
+(correct budget/team-limit enforcement, correct hit-worthiness gating,
+sensible captain/rationale output) but **not against your real squad** --
+same network restriction as Phases 1-2: this sandbox can't reach
+`fantasy.premierleague.com`, so pulling manager ID 1213466's actual squad
+needs to happen from an environment with network access.
+
 ## Testing
 
 ```bash
@@ -172,7 +244,7 @@ pytest
 
 - [x] Phase 1 — Data pipeline
 - [x] Phase 2 — Scoring engine (expected points per player, 1/3/5 GW horizons)
-- [ ] Phase 3 — Transfer optimizer
+- [x] Phase 3 — Transfer optimizer
 - [ ] Phase 4 — Chip planner (double/blank gameweeks, fixture swings)
 - [ ] Phase 5 — Differential finder (mini-league-relative ownership)
 - [ ] Phase 6 — Streamlit dashboard

@@ -8,7 +8,10 @@ from src.config import (
     BOOTSTRAP_STATIC_URL,
     FIXTURES_URL,
     element_summary_url,
+    entry_history_url,
     entry_picks_url,
+    entry_transfers_url,
+    entry_url,
     league_standings_url,
 )
 
@@ -57,3 +60,18 @@ def get_entry_picks(manager_id: int, gw: int) -> dict:
 def get_league_standings(league_id: int) -> dict:
     """All manager IDs in a mini-league (classic league standings)."""
     return _get_json(league_standings_url(league_id))
+
+
+def get_entry(manager_id: int) -> dict:
+    """A manager's public profile (team name, current gameweek, etc.)."""
+    return _get_json(entry_url(manager_id))
+
+
+def get_entry_history(manager_id: int) -> dict:
+    """A manager's gameweek-by-gameweek history this season, plus chip usage."""
+    return _get_json(entry_history_url(manager_id))
+
+
+def get_entry_transfers(manager_id: int) -> list[dict]:
+    """A manager's full transfer history this season (element in/out and prices paid)."""
+    return _get_json(entry_transfers_url(manager_id))

@@ -123,9 +123,35 @@ CREATE TABLE IF NOT EXISTS player_projections (
     FOREIGN KEY (player_id) REFERENCES players (id)
 );
 
+CREATE TABLE IF NOT EXISTS my_manager_snapshot (
+    manager_id INTEGER NOT NULL,
+    gw INTEGER NOT NULL,
+    bank INTEGER,
+    squad_value INTEGER,
+    free_transfers INTEGER,
+    pulled_at TEXT,
+    PRIMARY KEY (manager_id, gw)
+);
+
+CREATE TABLE IF NOT EXISTS my_squad_history (
+    manager_id INTEGER NOT NULL,
+    gw INTEGER NOT NULL,
+    player_id INTEGER NOT NULL,
+    squad_position INTEGER,
+    is_captain INTEGER,
+    is_vice_captain INTEGER,
+    multiplier INTEGER,
+    purchase_price INTEGER,
+    sell_price INTEGER,
+    pulled_at TEXT,
+    PRIMARY KEY (manager_id, gw, player_id),
+    FOREIGN KEY (player_id) REFERENCES players (id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_fixtures_event ON fixtures (event);
 CREATE INDEX IF NOT EXISTS idx_gameweek_stats_gw ON gameweek_stats (gw);
 CREATE INDEX IF NOT EXISTS idx_player_projections_gw ON player_projections (gameweek);
+CREATE INDEX IF NOT EXISTS idx_my_squad_history_manager_gw ON my_squad_history (manager_id, gw);
 """
 
 # Columns added after the initial release. Applied to existing databases (created
