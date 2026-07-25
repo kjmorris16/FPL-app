@@ -31,9 +31,15 @@ from src.scoring.confidence import confidence_label
 init_db()
 
 POSITION_NAMES = {1: "GK", 2: "DEF", 3: "MID", 4: "FWD"}
+LOGO_PATH = Path(__file__).resolve().parent / "assets" / "logo.png"
 
-st.set_page_config(page_title="FPL Dashboard", page_icon="⚽", layout="wide")
-st.title("⚽ FPL Dashboard")
+st.set_page_config(page_title="FPL Dashboard", page_icon=str(LOGO_PATH), layout="wide")
+
+logo_col, title_col = st.columns([1, 8])
+with logo_col:
+    st.image(str(LOGO_PATH), width=80)
+with title_col:
+    st.title("FPL Dashboard")
 
 with st.sidebar:
     st.header("Settings")
