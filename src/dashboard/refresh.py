@@ -13,6 +13,7 @@ from src.config import DEFAULT_LEAGUE_ID, DEFAULT_MANAGER_ID
 from src.db import connection
 from src.differentials import ingestion as differentials_ingestion
 from src.ingest import manager as manager_ingest
+from src.ingest import previous_season as previous_season_ingest
 from src.ingest import refresh as ingest_refresh
 from src.scoring import data_access as scoring_data_access, projections as scoring_projections
 
@@ -60,6 +61,31 @@ def refresh_all(manager_id: int = DEFAULT_MANAGER_ID, league_id: int = DEFAULT_L
         messages.append(f"✅ League {league_id} managers and picks refreshed.")
     except Exception as exc:
         messages.append(f"⚠️ Could not refresh league {league_id}: {exc}")
+
+    st.cache_data.clear()
+    return messages
+
+
+def refresh_previous_season_stats() -> list[str]:
+    """Pulls last season's per-player totals (Phase 8's pre-season selector
+    input). Separate from `refresh_all` on purpose: this is one API call per
+    player (~700 calls), so it's slow and only needs to run occasionally --
+    bundling it into the weekly refresh would make that button dramatically
+    slower for no ongoing benefit once the data's already stored. Requires
+    the `players` table to already be populated (run the main "Refresh data"
+    at least once first).
+    """
+    messages = []
+    try:
+        with connection() as conn:
+            player_ids = [row["id"] for row in conn.execute("SELECT id FROM players")]
+            if not player_ids:
+                messages.append("⚠️ No players found yet -- click the main 'Refresh data' button first.")
+                return messages
+            stored = previous_season_ingest.fetch_previous_season_stats(conn, player_ids)
+        messages.append(f"✅ Stored previous-season stats for {stored}/{len(player_ids)} players.")
+    except Exception as exc:
+        messages.append(f"⚠️ Could not fetch previous-season stats: {exc}")
 
     st.cache_data.clear()
     return messages

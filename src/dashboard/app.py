@@ -214,13 +214,28 @@ with tab_preseason:
         "not a certainty, until live data arrives after GW1."
     )
 
+    if st.button("📥 Fetch previous-season stats"):
+        with st.spinner("Fetching last season's stats for every player -- one API call each, can take a couple of minutes..."):
+            st.session_state["preseason_refresh_messages"] = dash_refresh.refresh_previous_season_stats()
+        st.rerun()
+
+    if st.session_state.get("preseason_refresh_messages"):
+        for message in st.session_state["preseason_refresh_messages"]:
+            st.write(message)
+        st.session_state["preseason_refresh_messages"] = None
+
+    st.caption(
+        "Separate from the sidebar's Refresh button -- this pulls one-time, ~700-request data that "
+        "doesn't change during the season, so it isn't bundled into the weekly refresh."
+    )
+
     preseason_budget = st.number_input("Budget (£m)", value=preseason_constants.DEFAULT_BUDGET_TENTHS / 10, step=0.5)
     preseason_section = dash_data.load_preseason_section(budget_tenths=round(preseason_budget * 10))
 
     if preseason_section is None:
         st.info(
-            "No previous-season stats ingested yet. Run `python -m src.ingest.previous_season` "
-            "(pulls last season's per-player totals for every current player) first."
+            "No previous-season stats ingested yet. Click **Fetch previous-season stats** above "
+            "(the sidebar's Refresh must be run at least once first, so there's a player list to fetch)."
         )
     elif "error" in preseason_section:
         st.error(preseason_section["error"])

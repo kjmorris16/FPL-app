@@ -76,3 +76,23 @@ def test_refresh_button_status_messages_survive_the_rerun(empty_db, monkeypatch)
 
     all_text = " ".join(el.value for el in at.get("markdown"))
     assert "Fake refresh step done" in all_text
+
+
+def test_preseason_fetch_button_status_messages_survive_the_rerun(empty_db, monkeypatch):
+    """Same st.rerun()-discards-output hazard as the sidebar refresh button,
+    for the Pre-Season tab's separate "Fetch previous-season stats" button.
+    """
+    import src.dashboard.refresh as refresh_module
+
+    monkeypatch.setattr(refresh_module, "refresh_previous_season_stats", lambda: ["✅ Fake previous-season fetch done."])
+
+    at = AppTest.from_file("src/dashboard/app.py", default_timeout=30)
+    at.run()
+    assert not at.exception
+
+    fetch_button = next(b for b in at.button if b.label == "📥 Fetch previous-season stats")
+    fetch_button.click().run()
+    assert not at.exception
+
+    all_text = " ".join(el.value for el in at.get("markdown"))
+    assert "Fake previous-season fetch done" in all_text
