@@ -20,6 +20,12 @@ from src.chips import constants as chip_constants
 from src.config import DEFAULT_LEAGUE_ID, DEFAULT_MANAGER_ID
 from src.dashboard import data as dash_data
 from src.dashboard import refresh as dash_refresh
+from src.db import init_db
+
+# A fresh deploy (or a first local run) has no data/fpl.db at all -- data/ is
+# gitignored. Without this, every query below would fail with "no such table"
+# before the user ever sees the friendly "no data yet" messages further down.
+init_db()
 
 POSITION_NAMES = {1: "GK", 2: "DEF", 3: "MID", 4: "FWD"}
 

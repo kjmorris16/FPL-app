@@ -19,6 +19,29 @@ def empty_db(tmp_path, monkeypatch):
     return db_path
 
 
+@pytest.fixture
+def nonexistent_db(tmp_path, monkeypatch):
+    """Points src.db at a path that doesn't exist yet -- exactly what a fresh
+    deploy sees, since data/ is gitignored and never shipped with the repo."""
+    db_path = tmp_path / "does_not_exist_yet.db"
+    monkeypatch.setattr(db_module, "DB_PATH", db_path)
+    return db_path
+
+
+def test_dashboard_renders_without_crashing_on_nonexistent_db(nonexistent_db):
+    """A brand new deploy (or a first local run) has no data/fpl.db at all.
+    The app must create the schema itself rather than crashing with
+    'no such table' before the user ever sees a friendly empty-state message.
+    """
+    at = AppTest.from_file("src/dashboard/app.py", default_timeout=30)
+    at.run()
+
+    assert not at.exception, f"Dashboard raised on a brand-new DB: {at.exception}"
+    assert nonexistent_db.exists()
+    info_texts = " ".join(i.value for i in at.info)
+    assert "No squad snapshot yet" in info_texts
+
+
 def test_dashboard_renders_without_crashing_on_empty_db(empty_db):
     at = AppTest.from_file("src/dashboard/app.py", default_timeout=30)
     at.run()
