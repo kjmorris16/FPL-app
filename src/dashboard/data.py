@@ -1,0 +1,177 @@
+"""Data-loading helpers for the Streamlit dashboard. Wraps the phase modules
+so app.py stays focused on layout.
+
+Every loader opens its own short-lived DB connection and is wrapped in
+`st.cache_data` so Streamlit's rerun-on-every-interaction model doesn't
+recompute everything (projections, transfer combos, differential ranking) on
+every widget click. The "Refresh data" button (`src/dashboard/refresh.py`) is
+the only thing that hits the network; it explicitly clears this cache
+afterwards so the next render picks up what it just pulled.
+"""
+import streamlit as st
+
+from src.chips import availability as chip_availability, constants as chip_constants, planner as chip_planner
+from src.db import connection
+from src.differentials import data_access as diff_data_access, finder as diff_finder
+from src.scoring import data_access as scoring_data_access
+from src.transfers import captain as transfer_captain, constants as transfer_constants, data_access as transfers_data_access, optimizer, rationale
+
+CACHE_TTL_SECONDS = 60
+
+
+@st.cache_data(ttl=CACHE_TTL_SECONDS)
+def load_current_gw() -> int | None:
+    with connection() as conn:
+        try:
+            return scoring_data_access.get_current_gw(conn)
+        except Exception:
+            return None
+
+
+@st.cache_data(ttl=CACHE_TTL_SECONDS)
+def load_squad_section(manager_id: int) -> dict | None:
+    with connection() as conn:
+        gw = transfers_data_access.get_latest_squad_gw(conn, manager_id)
+        if gw is None:
+            return None
+
+        snapshot = transfers_data_access.get_manager_snapshot(conn, manager_id, gw)
+        squad = transfers_data_access.get_current_squad(conn, manager_id, gw)
+        player_ids = [p["player_id"] for p in squad]
+
+        totals = transfers_data_access.get_projection_totals(conn, player_ids, start_gw=gw, horizons=(1,)) if player_ids else {}
+
+        history_by_player: dict[int, list] = {}
+        if player_ids:
+            placeholders = ",".join("?" for _ in player_ids)
+            rows = conn.execute(
+                f"SELECT player_id, gw, total_points FROM gameweek_stats WHERE player_id IN ({placeholders}) ORDER BY player_id, gw",
+                player_ids,
+            ).fetchall()
+            for row in rows:
+                history_by_player.setdefault(row["player_id"], []).append(row["total_points"] or 0)
+
+        teams = {row["id"]: (row["short_name"] or row["name"]) for row in conn.execute("SELECT id, name, short_name FROM teams")}
+
+    for p in squad:
+        p["projected_points_gw"] = totals.get(p["player_id"], {}).get(1, 0.0)
+        p["recent_form"] = history_by_player.get(p["player_id"], [])[-6:]
+        p["team_short"] = teams.get(p["team_id"], "?")
+
+    return {"gw": gw, "snapshot": snapshot, "squad": squad}
+
+
+@st.cache_data(ttl=CACHE_TTL_SECONDS)
+def load_transfer_recommendation(manager_id: int) -> dict | None:
+    with connection() as conn:
+        gw = transfers_data_access.get_latest_squad_gw(conn, manager_id)
+        if gw is None:
+            return None
+
+        manager_snapshot = transfers_data_access.get_manager_snapshot(conn, manager_id, gw)
+        if manager_snapshot is None:
+            return None
+
+        squad = transfers_data_access.get_current_squad(conn, manager_id, gw)
+        candidate_pool = transfers_data_access.get_candidate_pool(conn)
+        all_ids = {p["player_id"] for p in squad} | {p["player_id"] for p in candidate_pool}
+        proj_totals = transfers_data_access.get_projection_totals(
+            conn, list(all_ids), start_gw=gw, horizons=transfer_constants.REPORTED_HORIZONS_GWS
+        )
+
+        combos = optimizer.generate_combos(squad, candidate_pool, manager_snapshot["bank"], manager_snapshot["free_transfers"], proj_totals)
+        if not combos:
+            return None
+        top_combo = combos[0]
+
+        fixture_context = {
+            swap.in_player["player_id"]: transfers_data_access.get_average_fixture_difficulty(
+                conn, swap.in_player["team_id"], gw, transfer_constants.DEFAULT_RANKING_HORIZON_GWS
+            )
+            for swap in top_combo.swaps
+        }
+        rationale_text = rationale.build_rationale(top_combo, fixture_context)
+
+        squad_ids = {p["player_id"] for p in squad}
+        out_ids = {s.out_player["player_id"] for s in top_combo.swaps}
+        in_ids = {s.in_player["player_id"] for s in top_combo.swaps}
+        resulting_squad_ids = (squad_ids - out_ids) | in_ids
+        single_gw_projections = {pid: proj_totals.get(pid, {}).get(1, 0.0) for pid in resulting_squad_ids}
+        players_by_id = {p["player_id"]: p for p in squad}
+        players_by_id.update({p["player_id"]: p for p in candidate_pool})
+        cap_id, vice_id = transfer_captain.recommend_captain(list(resulting_squad_ids), single_gw_projections)
+
+    return {
+        "gw": gw,
+        "bank": manager_snapshot["bank"],
+        "free_transfers": manager_snapshot["free_transfers"],
+        "top_combo": top_combo,
+        "alternatives": combos[1:4],
+        "rationale": rationale_text,
+        "captain": players_by_id.get(cap_id, {}).get("web_name") if cap_id else None,
+        "captain_points": single_gw_projections.get(cap_id) if cap_id else None,
+        "vice_captain": players_by_id.get(vice_id, {}).get("web_name") if vice_id else None,
+        "vice_captain_points": single_gw_projections.get(vice_id) if vice_id else None,
+    }
+
+
+@st.cache_data(ttl=CACHE_TTL_SECONDS)
+def load_chip_section(manager_id: int, horizon_gws: int = chip_constants.PLANNING_HORIZON_GWS) -> dict:
+    with connection() as conn:
+        current_gw = scoring_data_access.get_current_gw(conn)
+        end_gw = current_gw + horizon_gws - 1
+
+        chip_usage = [
+            dict(row) for row in conn.execute("SELECT chip_name, event FROM chip_usage WHERE manager_id = ?", (manager_id,))
+        ]
+        available = chip_availability.get_available_chips(chip_usage, current_gw)
+
+        squad_gw = transfers_data_access.get_latest_squad_gw(conn, manager_id)
+        calendar = chip_planner.build_calendar(conn, manager_id, current_gw, end_gw, squad_gw=squad_gw)
+
+        teams = {row["id"]: (row["short_name"] or row["name"]) for row in conn.execute("SELECT id, name, short_name FROM teams")}
+        players_by_id = {row["id"]: dict(row) for row in conn.execute("SELECT id, web_name FROM players")}
+
+    recommendations = {}
+    for chip_name in chip_constants.CHIP_DISPLAY_NAMES:
+        best = chip_planner.top_recommendation(calendar, chip_name, available)
+        recommendations[chip_name] = {
+            "available": available.get(chip_name, False),
+            "best": best,
+            "description": chip_planner.describe_recommendation(chip_name, best, teams=teams, players_by_id=players_by_id) if best else None,
+        }
+
+    return {
+        "current_gw": current_gw,
+        "end_gw": end_gw,
+        "calendar": calendar,
+        "recommendations": recommendations,
+    }
+
+
+@st.cache_data(ttl=CACHE_TTL_SECONDS)
+def load_differentials_section(league_id: int, manager_id: int, top_n: int = 10, max_ownership_pct: float = 30.0) -> dict:
+    with connection() as conn:
+        current_gw = scoring_data_access.get_current_gw(conn)
+        league_gw = diff_data_access.get_latest_league_picks_gw(conn, league_id)
+        if league_gw is None:
+            return {"league_gw": None}
+
+        my_squad_gw = transfers_data_access.get_latest_squad_gw(conn, manager_id)
+
+        to_transfer_in = diff_finder.rank_differentials_to_transfer_in(
+            conn, league_id, manager_id, league_gw, my_squad_gw, start_gw=current_gw, top_n=top_n, max_ownership_pct=max_ownership_pct,
+        )
+        my_differentials = diff_finder.rank_my_differentials(
+            conn, league_id, manager_id, league_gw, my_squad_gw, start_gw=current_gw, top_n=top_n, max_ownership_pct=max_ownership_pct,
+        )
+        players_by_id = {row["id"]: dict(row) for row in conn.execute("SELECT id, web_name, team_id FROM players")}
+        teams = {row["id"]: (row["short_name"] or row["name"]) for row in conn.execute("SELECT id, name, short_name FROM teams")}
+
+    return {
+        "league_gw": league_gw,
+        "to_transfer_in": to_transfer_in,
+        "my_differentials": my_differentials,
+        "players_by_id": players_by_id,
+        "teams": teams,
+    }

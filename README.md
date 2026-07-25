@@ -376,6 +376,70 @@ already-used Wildcard correctly shown). Not yet run against a real mini-league,
 for the same network reason as the phases above -- and this particular
 league doesn't exist yet regardless.
 
+## Phase 6 — Dashboard
+
+A single Streamlit page tying together Phases 1-5, so a gameweek check is
+"open the dashboard" instead of running five separate CLIs.
+
+```bash
+streamlit run src/dashboard/app.py
+```
+
+(`src/dashboard/app.py` inserts the project root onto `sys.path` at the top
+of the file -- Streamlit otherwise runs scripts with only their own
+directory on the path, which breaks `import src...` regardless of your
+working directory when you launch it.)
+
+Four tabs, each backed by the exact same modules the CLIs use (no logic
+duplicated for the dashboard):
+- **My Squad** -- bank/free transfers/squad value as metrics, and the 15-man
+  squad as a table (position, team, price, next-GW projection, C/VC tags,
+  and a per-player recent-form bar chart via `st.column_config.BarChartColumn`).
+- **Transfer Recommendation** -- Phase 3's top combo (in/out, 1/3/5 GW gain,
+  hit cost if any, remaining bank), its plain-English rationale, the
+  resulting captain/vice-captain pick, and the next few alternatives.
+- **Chip Timing** -- a status table (available/used, best gameweek, why) for
+  all four chips, plus a bar chart of Bench Boost/Triple Captain value across
+  the planning window and a list of upcoming DGW/BGW fixture swings.
+- **Differentials** -- top candidates to transfer in and differentials
+  already owned, side by side, using the configured league ID.
+
+**Manual refresh** (`src/dashboard/refresh.py`, triggered by the sidebar
+button): reruns Phase 1's ingestion, recomputes projections, refreshes your
+squad and chip usage, and refreshes the configured league -- each step
+wrapped independently so one failure (no network, or the placeholder league
+not existing yet) doesn't block the others. All the reads elsewhere are
+cached for a minute (`st.cache_data`) so clicking around the tabs doesn't
+recompute transfer combos or differential rankings on every click; the
+refresh button explicitly clears that cache afterwards.
+
+Read-heavy `st.cache_data` functions are the norm here, but one non-obvious
+Streamlit behavior was worth catching before shipping: `st.rerun()` right
+after refreshing discards anything written earlier in that same script run,
+so a naive `st.write(message)` before the rerun would never actually be
+visible. The status messages are stashed in `st.session_state` and rendered
+on the *next* run instead -- covered by
+`tests/test_dashboard_app.py::test_refresh_button_status_messages_survive_the_rerun`.
+
+**Verification**: an `AppTest`-based test (`tests/test_dashboard_app.py`)
+confirms the app renders without raising against an empty database, with
+every section showing a friendly "no data yet" message. Beyond that, since
+this is a UI, I actually launched it (`streamlit run`) and drove it with a
+headless browser (Playwright) against a synthetic dataset seeded under the
+real manager ID (1213466) and the placeholder league ID (103056) -- covering
+squad display (bank/FT/squad value, position table, recent-form bars,
+captain/vice tags), a transfer recommendation with rationale and
+captain/vice picks, the chip calendar (correctly flagging an already-used
+Wildcard and surfacing a planted double-gameweek window), and both
+differential views. I also clicked the refresh button against this
+sandbox's blocked network and confirmed it fails each step gracefully
+(readable warnings, no crash) rather than hanging or corrupting the
+existing data -- this surfaced and fixed the `st.rerun()` message-loss bug
+above. The synthetic data was removed afterward; nothing from this
+verification is left in `data/fpl.db`. Screenshots from that session were
+sent alongside this summary. Not yet checked against your real squad and
+league, for the same network reason as every phase before it.
+
 ## Testing
 
 ```bash
@@ -389,5 +453,5 @@ pytest
 - [x] Phase 3 — Transfer optimizer
 - [x] Phase 4 — Chip planner (double/blank gameweeks, fixture swings)
 - [x] Phase 5 — Differential finder (mini-league-relative ownership)
-- [ ] Phase 6 — Streamlit dashboard
+- [x] Phase 6 — Streamlit dashboard
 - [ ] Phase 7 — Community sentiment cross-check (YouTube transcript ingestion)
