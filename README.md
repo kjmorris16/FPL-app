@@ -440,6 +440,102 @@ verification is left in `data/fpl.db`. Screenshots from that session were
 sent alongside this summary. Not yet checked against your real squad and
 league, for the same network reason as every phase before it.
 
+## Phase 8 — Pre-season squad selector
+
+Live squad/picks data isn't available until GW1's deadline passes, so this
+fills that gap: a full-squad recommendation built from last season's data
+and whatever pre-season signal is reasonably available, rather than
+current-season stats that don't exist yet. Phase 7 (community sentiment)
+hasn't been built -- this phase's integration point for it is a documented
+no-op until it exists (see below), per the brief's "if Phase 7 is built"
+framing.
+
+**Scope note**: the brief also asks for "squad changes -- new signings,
+players who left, new manager appointments" as a secondary signal. The
+public FPL API doesn't expose last season's team affiliation per player or
+any manager/coaching data at all, so there's no reliable way to detect
+"proven player moved to a new club" or "new manager" without fabricating
+data. What *is* reliably derivable -- and is exactly the decision-relevant
+part, per the brief's own scoring section -- is whether a player has *any*
+top-flight history on record at all (rookie, promoted-team debut, first PL
+season for an overseas signing), which drives the confidence flag below.
+This boundary is deliberate, not an oversight.
+
+### Last season's stats (`src/ingest/previous_season.py`)
+
+Pulls `history_past` from `element-summary` for every current player (one
+API call each, same slow pattern as Phase 1's `--with-history`) and stores
+the most recent past-season entry in `player_previous_season_stats`. A
+player with **no** `history_past` at all is simply not stored -- that
+absence is itself the signal the confidence flag reads, rather than a
+placeholder row.
+
+```bash
+python -m src.ingest.previous_season
+```
+
+Note this is a separate pull from the dashboard/CLI's live scoring run --
+run it once (or whenever you want to refresh last-season data) before
+using the pre-season selector; `src/preseason/scoring.py` reads whatever
+was last stored, it doesn't trigger this ingestion itself.
+
+### Scoring (`src/preseason/scoring.py`)
+
+Reuses Phase 2's tested scoring machinery almost entirely -- the points
+model, clean-sheet Poisson model, fixture-difficulty adjustments, and the
+shrinkage estimator for new signings -- just fed last-season per-90 rates
+instead of blended current-season ones, since `gameweek_stats` is
+completely empty before GW1. The one real simplification: last season's
+data is season totals, not per-gameweek rows, so there's a single
+minutes-share factor (last-season minutes / a full 38-game season) rather
+than Phase 2's fuller minutes-probability breakdown -- documented in the
+module.
+
+Friendly-appearance and creator-insight signals are small, additive nudges
+layered on top afterward (a fixed +0.3 for a recorded goal/assist in a
+friendly, a small confidence penalty for an established starter with zero
+recorded pre-season minutes, +/-0.2 for creator buy/sell sentiment) --
+never large enough to override the season-long signal that actually drives
+the score. Both read from tables that don't exist yet in this codebase
+(`friendly_appearances` -- the optional API-Football module was deliberately
+not built this phase, since it needs your own API key to test against
+meaningfully; `creator_insights` -- Phase 7) and degrade to a clean no-op
+when the table is absent (`src/preseason/data_access.py`), rather than
+erroring.
+
+### Squad optimizer (`src/preseason/optimizer.py`)
+
+Building a full 15 from ~700 candidates with no existing squad to start
+from is a genuinely different problem from Phase 3's transfer optimizer
+(which only ever evaluates small swaps against an existing squad via a
+shortlisting heuristic). This uses a real mixed-integer linear program
+(`pulp`, with its bundled CBC solver) to pick the true optimum under the
+budget/position/team constraints, rather than a greedy approximation --
+solves in well under a second for this problem size. Starting XI selection
+enumerates FPL's valid (DEF, MID, FWD) formation shapes and picks the
+highest-scoring one; captain/vice reuses Phase 3's exact "top two scorers"
+rule.
+
+### Output
+
+```bash
+python -m src.preseason.cli                    # suggested 15 + starting XI
+python -m src.preseason.cli --budget 98.5 --horizon 3
+```
+
+The dashboard's fifth tab ("Pre-Season Squad") shows the same thing with a
+clear banner: *"Based on last season's data and pre-season signal -- treat
+as a starting point, not a certainty, until live data arrives after GW1."*
+Squad grouped by position (price, score, confidence, notes), starting
+XI + formation, bench, and captain/vice.
+
+Verified end-to-end against a synthetic 8-team league (correct budget/
+position/team-cap enforcement in the ILP, correct formation and bench
+ordering, confidence flags rendering correctly for no-history players) and
+against a live browser session for the dashboard tab specifically. Not yet
+run against the real 2026/27 pre-season data, for the same network reason
+as every phase before it.
+
 ## Testing
 
 ```bash
@@ -455,3 +551,4 @@ pytest
 - [x] Phase 5 — Differential finder (mini-league-relative ownership)
 - [x] Phase 6 — Streamlit dashboard
 - [ ] Phase 7 — Community sentiment cross-check (YouTube transcript ingestion)
+- [x] Phase 8 — Pre-season squad selector

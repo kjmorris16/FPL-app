@@ -47,12 +47,13 @@ def test_dashboard_renders_without_crashing_on_empty_db(empty_db):
     at.run()
 
     assert not at.exception, f"Dashboard raised: {at.exception}"
-    # All four sections should show a friendly "no data yet" message rather
+    # All five sections should show a friendly "no data yet" message rather
     # than crash when the database has no ingested data.
     info_texts = " ".join(i.value for i in at.info)
     assert "No squad snapshot yet" in info_texts
     assert "No transfer recommendation available" in info_texts
     assert "No league pick data yet" in info_texts
+    assert "No previous-season stats ingested yet" in info_texts
 
 
 def test_refresh_button_status_messages_survive_the_rerun(empty_db, monkeypatch):

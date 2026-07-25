@@ -21,6 +21,8 @@ from src.config import DEFAULT_LEAGUE_ID, DEFAULT_MANAGER_ID
 from src.dashboard import data as dash_data
 from src.dashboard import refresh as dash_refresh
 from src.db import init_db
+from src.preseason import constants as preseason_constants
+from src.scoring.confidence import confidence_label
 
 # A fresh deploy (or a first local run) has no data/fpl.db at all -- data/ is
 # gitignored. Without this, every query below would fail with "no such table"
@@ -54,8 +56,8 @@ with st.sidebar:
 current_gw = dash_data.load_current_gw()
 st.caption(f"Current gameweek: GW{current_gw}" if current_gw else "No gameweek data yet -- hit Refresh in the sidebar.")
 
-tab_squad, tab_transfers, tab_chips, tab_differentials = st.tabs(
-    ["My Squad", "Transfer Recommendation", "Chip Timing", "Differentials"]
+tab_squad, tab_transfers, tab_chips, tab_differentials, tab_preseason = st.tabs(
+    ["My Squad", "Transfer Recommendation", "Chip Timing", "Differentials", "Pre-Season Squad"]
 )
 
 with tab_squad:
@@ -204,3 +206,62 @@ with tab_differentials:
                 st.dataframe(pd.DataFrame(my_rows), hide_index=True, use_container_width=True)
             else:
                 st.caption("None of your squad qualifies as a differential yet.")
+
+with tab_preseason:
+    st.subheader("Pre-Season Squad Selector")
+    st.info(
+        "Based on last season's data and pre-season signal -- treat as a starting point, "
+        "not a certainty, until live data arrives after GW1."
+    )
+
+    preseason_budget = st.number_input("Budget (£m)", value=preseason_constants.DEFAULT_BUDGET_TENTHS / 10, step=0.5)
+    preseason_section = dash_data.load_preseason_section(budget_tenths=round(preseason_budget * 10))
+
+    if preseason_section is None:
+        st.info(
+            "No previous-season stats ingested yet. Run `python -m src.ingest.previous_season` "
+            "(pulls last season's per-player totals for every current player) first."
+        )
+    elif "error" in preseason_section:
+        st.error(preseason_section["error"])
+    else:
+        squad = preseason_section["squad"]
+        players_by_id = preseason_section["players_by_id"]
+        teams = preseason_section["teams"]
+
+        col1, col2 = st.columns(2)
+        col1.metric("Squad cost", f"£{preseason_section['total_cost'] / 10:.1f}m")
+        col2.metric("Budget", f"£{preseason_section['budget'] / 10:.1f}m")
+
+        def _preseason_row(p):
+            info = players_by_id[p["player_id"]]
+            return {
+                "Player": info["web_name"],
+                "Pos": POSITION_NAMES.get(p["element_type"], "?"),
+                "Team": teams.get(p["team_id"], "?"),
+                "Price": f"£{(p['now_cost'] or 0) / 10:.1f}m",
+                "Score": round(p["score"], 1),
+                "Confidence": confidence_label(p["confidence"]),
+                "Notes": "; ".join(p.get("notes", [])),
+            }
+
+        st.markdown("**Suggested 15-man squad**")
+        squad_rows = [_preseason_row(p) for p in sorted(squad, key=lambda p: (p["element_type"], -p["score"]))]
+        st.dataframe(pd.DataFrame(squad_rows), hide_index=True, use_container_width=True)
+
+        lineup = preseason_section["lineup"]
+        st.markdown(f"**Suggested starting XI ({lineup['formation']})**")
+        st.dataframe(pd.DataFrame([_preseason_row(p) for p in lineup["starting_xi"]]), hide_index=True, use_container_width=True)
+
+        st.markdown("**Bench**")
+        st.dataframe(pd.DataFrame([_preseason_row(p) for p in lineup["bench"]]), hide_index=True, use_container_width=True)
+
+        captain = preseason_section["captain"]
+        vice = preseason_section["vice"]
+        cap_col, vice_col = st.columns(2)
+        cap_col.metric("Captain", players_by_id[captain["player_id"]]["web_name"], f"score {captain['score']:.1f}")
+        vice_col.metric("Vice-captain", players_by_id[vice["player_id"]]["web_name"], f"score {vice['score']:.1f}")
+        st.caption(
+            "Captain/vice picked as the two highest-scoring starting XI players -- same simple rule "
+            "Phase 3 uses in-season, just against the pre-season score instead of a live projection."
+        )

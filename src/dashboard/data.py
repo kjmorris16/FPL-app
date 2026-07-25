@@ -13,6 +13,7 @@ import streamlit as st
 from src.chips import availability as chip_availability, constants as chip_constants, planner as chip_planner
 from src.db import connection
 from src.differentials import data_access as diff_data_access, finder as diff_finder
+from src.preseason import constants as preseason_constants, optimizer as preseason_optimizer, scoring as preseason_scoring
 from src.scoring import data_access as scoring_data_access
 from src.transfers import captain as transfer_captain, constants as transfer_constants, data_access as transfers_data_access, optimizer, rationale
 
@@ -174,4 +175,52 @@ def load_differentials_section(league_id: int, manager_id: int, top_n: int = 10,
         "my_differentials": my_differentials,
         "players_by_id": players_by_id,
         "teams": teams,
+    }
+
+
+@st.cache_data(ttl=CACHE_TTL_SECONDS)
+def load_preseason_section(
+    budget_tenths: int = preseason_constants.DEFAULT_BUDGET_TENTHS,
+    horizon_gws: int = preseason_constants.FIXTURE_HORIZON_GWS,
+) -> dict | None:
+    """None if no previous-season stats have been ingested yet; a dict with an
+    "error" key if a full 15-man squad can't be built within budget."""
+    with connection() as conn:
+        scores = preseason_scoring.compute_preseason_scores(conn, start_gw=preseason_constants.START_GW, horizon_gws=horizon_gws)
+        if not scores:
+            return None
+        players_by_id = {row["id"]: dict(row) for row in conn.execute("SELECT * FROM players")}
+        teams = {row["id"]: (row["short_name"] or row["name"]) for row in conn.execute("SELECT id, name, short_name FROM teams")}
+
+    candidates = [
+        {
+            "player_id": pid,
+            "element_type": players_by_id[pid]["element_type"],
+            "team_id": players_by_id[pid]["team_id"],
+            "now_cost": players_by_id[pid]["now_cost"] or 0,
+            "score": info["score"],
+            "confidence": info["confidence"],
+            "notes": info["notes"],
+        }
+        for pid, info in scores.items()
+        if pid in players_by_id
+    ]
+
+    try:
+        squad = preseason_optimizer.select_best_squad(candidates, budget=budget_tenths)
+    except RuntimeError as exc:
+        return {"error": str(exc)}
+
+    lineup = preseason_optimizer.select_starting_xi(squad)
+    ranked_xi = sorted(lineup["starting_xi"], key=lambda p: p["score"], reverse=True)
+
+    return {
+        "squad": squad,
+        "lineup": lineup,
+        "players_by_id": players_by_id,
+        "teams": teams,
+        "captain": ranked_xi[0],
+        "vice": ranked_xi[1],
+        "total_cost": sum(p["now_cost"] for p in squad),
+        "budget": budget_tenths,
     }

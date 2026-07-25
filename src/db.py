@@ -178,6 +178,27 @@ CREATE TABLE IF NOT EXISTS league_manager_picks (
     FOREIGN KEY (player_id) REFERENCES players (id)
 );
 
+CREATE TABLE IF NOT EXISTS player_previous_season_stats (
+    player_id INTEGER PRIMARY KEY,
+    season_name TEXT,
+    minutes INTEGER,
+    total_points INTEGER,
+    goals_scored INTEGER,
+    assists INTEGER,
+    clean_sheets INTEGER,
+    goals_conceded INTEGER,
+    expected_goals REAL,
+    expected_assists REAL,
+    expected_goal_involvements REAL,
+    expected_goals_conceded REAL,
+    saves INTEGER,
+    bonus INTEGER,
+    start_cost INTEGER,
+    end_cost INTEGER,
+    pulled_at TEXT,
+    FOREIGN KEY (player_id) REFERENCES players (id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_fixtures_event ON fixtures (event);
 CREATE INDEX IF NOT EXISTS idx_gameweek_stats_gw ON gameweek_stats (gw);
 CREATE INDEX IF NOT EXISTS idx_player_projections_gw ON player_projections (gameweek);
