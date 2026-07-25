@@ -534,6 +534,17 @@ the same team-fixtures lookup the scoring engine itself relies on, so what's
 displayed always matches what actually drove the score -- a double
 gameweek shows both fixtures' difficulty joined with "/", a blank shows "-".
 
+The GW1/GW2/GW3 columns in the dashboard (squad, starting XI, and bench
+tables) are color-coded -- a ColorBrewer-style green-to-red diverging scale
+(`src/dashboard/styling.py`): 1 (easiest) strong green, 2 soft green, 3
+light grey, 4 soft red, 5 (hardest) strong red. A double-gameweek cell is
+colored by the average of its two fixtures' difficulty, rounded to the
+nearest rating. This is implemented as a pandas Styler (`st.dataframe`
+accepts one directly), kept in its own module since it's pure/importable
+logic, separate from `app.py`'s Streamlit-script side effects -- and pinned
+to 1-decimal float formatting, since a bare Styler's default float display
+is otherwise much noisier than plain `st.dataframe` gives you.
+
 **"Must include" / "must exclude" player pickers** let you force specific
 players in or out and have the ILP solver rebuild the rest of the squad
 (and total score) around that constraint -- rather than a free-form edit of

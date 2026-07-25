@@ -20,6 +20,7 @@ from src.chips import constants as chip_constants
 from src.config import DEFAULT_LEAGUE_ID, DEFAULT_MANAGER_ID
 from src.dashboard import data as dash_data
 from src.dashboard import refresh as dash_refresh
+from src.dashboard.styling import style_fixture_columns
 from src.db import init_db
 from src.preseason import constants as preseason_constants
 from src.scoring.confidence import confidence_label
@@ -303,15 +304,17 @@ with tab_preseason:
             return row
 
         st.markdown("**Suggested 15-man squad**")
-        squad_rows = [_preseason_row(p) for p in sorted(squad, key=lambda p: (p["element_type"], -p["score"]))]
-        st.dataframe(pd.DataFrame(squad_rows), hide_index=True, use_container_width=True)
+        squad_df = pd.DataFrame([_preseason_row(p) for p in sorted(squad, key=lambda p: (p["element_type"], -p["score"]))])
+        st.dataframe(style_fixture_columns(squad_df, ticker_gw_labels), hide_index=True, use_container_width=True)
 
         lineup = preseason_section["lineup"]
         st.markdown(f"**Suggested starting XI ({lineup['formation']})**")
-        st.dataframe(pd.DataFrame([_preseason_row(p) for p in lineup["starting_xi"]]), hide_index=True, use_container_width=True)
+        xi_df = pd.DataFrame([_preseason_row(p) for p in lineup["starting_xi"]])
+        st.dataframe(style_fixture_columns(xi_df, ticker_gw_labels), hide_index=True, use_container_width=True)
 
         st.markdown("**Bench**")
-        st.dataframe(pd.DataFrame([_preseason_row(p) for p in lineup["bench"]]), hide_index=True, use_container_width=True)
+        bench_df = pd.DataFrame([_preseason_row(p) for p in lineup["bench"]])
+        st.dataframe(style_fixture_columns(bench_df, ticker_gw_labels), hide_index=True, use_container_width=True)
 
         captain = preseason_section["captain"]
         vice = preseason_section["vice"]
