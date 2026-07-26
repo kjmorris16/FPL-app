@@ -66,6 +66,20 @@ def select_best_squad(
     return [p for p in candidates if choice[p["player_id"]].value() == 1]
 
 
+def score_percentage(squad_score: float, baseline_score: float) -> float:
+    """Squad quality as a percentage of `baseline_score` -- the best score
+    achievable for the same budget with no must-include/exclude constraints.
+    100% means the squad is the true optimum; it drops below 100% only when
+    a must-include/exclude pick forces the solver away from that optimum.
+    The raw summed score has no natural ceiling on its own (it's just
+    projected points across a few gameweeks), so a percentage against "the
+    best you could have chosen" is far more legible than that number alone.
+    """
+    if not baseline_score:
+        return 0.0
+    return round(squad_score / baseline_score * 100, 1)
+
+
 def select_starting_xi(squad: list[dict]) -> dict:
     """Picks the highest-scoring valid starting XI from the 15-man squad
     across FPL's allowed formations. Returns {formation, starting_xi, bench}

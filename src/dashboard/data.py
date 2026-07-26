@@ -251,6 +251,16 @@ def load_preseason_section(
     except RuntimeError as exc:
         return {"error": str(exc)}
 
+    total_score = sum(p["score"] for p in squad)
+    if must_include_ids or must_exclude_ids:
+        # Only worth a second solve when there's actually a constraint that
+        # could make this squad worse than the unconstrained optimum --
+        # otherwise `squad` already *is* that optimum.
+        baseline_squad = preseason_optimizer.select_best_squad(candidates, budget=budget_tenths)
+        baseline_score = sum(p["score"] for p in baseline_squad)
+    else:
+        baseline_score = total_score
+
     lineup = preseason_optimizer.select_starting_xi(squad)
     ranked_xi = sorted(lineup["starting_xi"], key=lambda p: p["score"], reverse=True)
 
@@ -262,6 +272,7 @@ def load_preseason_section(
         "captain": ranked_xi[0],
         "vice": ranked_xi[1],
         "total_cost": sum(p["now_cost"] for p in squad),
-        "total_score": round(sum(p["score"] for p in squad), 1),
+        "total_score": round(total_score, 1),
+        "score_pct": preseason_optimizer.score_percentage(total_score, baseline_score),
         "budget": budget_tenths,
     }

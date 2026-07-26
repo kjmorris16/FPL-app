@@ -21,6 +21,7 @@ from src.config import DEFAULT_LEAGUE_ID, DEFAULT_MANAGER_ID
 from src.dashboard import data as dash_data
 from src.dashboard import refresh as dash_refresh
 from src.dashboard.styling import style_fixture_columns
+from src.dashboard.table_edits import apply_name_edits
 from src.db import init_db
 from src.preseason import constants as preseason_constants
 from src.scoring.confidence import confidence_label
@@ -264,8 +265,18 @@ with tab_preseason:
             "Must exclude these players", options=sorted_labels, key="preseason_must_exclude",
             help="Force the optimizer to leave these players out entirely.",
         )
-    must_include_ids = tuple(sorted(id_by_label[label] for label in must_include_labels))
-    must_exclude_ids = tuple(sorted(id_by_label[label] for label in must_exclude_labels))
+    # Swaps made by editing a name directly in the squad table below (see
+    # `apply_name_edits`) are tracked separately from the pickers above, then
+    # unioned in here -- they share the same underlying must-include/exclude
+    # mechanism but live in plain session_state, not a widget's own state, so
+    # setting them doesn't hit Streamlit's "can't modify a widget's state
+    # after it's been instantiated this run" rule (the pickers above have
+    # already been instantiated by this point in the script).
+    swap_include_ids = st.session_state.setdefault("preseason_swap_include_ids", set())
+    swap_exclude_ids = st.session_state.setdefault("preseason_swap_exclude_ids", set())
+
+    must_include_ids = tuple(sorted({id_by_label[label] for label in must_include_labels} | swap_include_ids))
+    must_exclude_ids = tuple(sorted({id_by_label[label] for label in must_exclude_labels} | swap_exclude_ids))
 
     preseason_section = dash_data.load_preseason_section(
         budget_tenths=round(preseason_budget * 10),
@@ -288,7 +299,13 @@ with tab_preseason:
         ticker_gw_labels = [f"GW{preseason_constants.START_GW + i}" for i in range(preseason_constants.FIXTURE_TICKER_GWS)]
 
         col1, col2, col3 = st.columns(3)
-        col1.metric("Squad total score", preseason_section["total_score"])
+        col1.metric(
+            "Squad quality",
+            f"{preseason_section['score_pct']:.1f}%",
+            help="Percentage of the best possible squad for this budget with no must-include/exclude picks "
+            "applied -- 100% means this is that optimal squad; it only drops below that when a must-include/"
+            "exclude pick (from the pickers or table edits above) forces the solver away from it.",
+        )
         col2.metric("Squad cost", f"£{preseason_section['total_cost'] / 10:.1f}m")
         col3.metric("Budget", f"£{preseason_section['budget'] / 10:.1f}m")
         st.caption("Fixture difficulty: 1 = easiest, 5 = hardest. \"-\" = blank gameweek, \"a/b\" = double gameweek.")
@@ -309,9 +326,36 @@ with tab_preseason:
             row["Notes"] = "; ".join(p.get("notes", []))
             return row
 
-        st.markdown("**Suggested 15-man squad**")
-        squad_df = pd.DataFrame([_preseason_row(p) for p in sorted(squad, key=lambda p: (p["element_type"], -p["score"]))])
-        st.dataframe(style_fixture_columns(squad_df, ticker_gw_labels), hide_index=True, use_container_width=True)
+        st.markdown("**Suggested 15-man squad** -- edit a name in the Player column to swap that player out.")
+        sorted_squad = sorted(squad, key=lambda p: (p["element_type"], -p["score"]))
+        squad_df = pd.DataFrame([_preseason_row(p) for p in sorted_squad])
+        edited_squad_df = st.data_editor(
+            squad_df,
+            disabled=[col for col in squad_df.columns if col != "Player"],
+            column_config={"Score": st.column_config.NumberColumn(format="%.1f")},
+            hide_index=True,
+            use_container_width=True,
+            key="preseason_squad_editor",
+        )
+        st.caption(
+            "Editing here re-runs the same solver as the pickers above (so it still can't produce an invalid "
+            "squad), which also means this table can't show the fixture-difficulty colors -- those are still "
+            "on the starting XI and bench tables below."
+        )
+
+        updated_swap_include, updated_swap_exclude, unmatched_names = apply_name_edits(
+            sorted_squad, edited_squad_df["Player"].tolist(), player_directory, swap_include_ids, swap_exclude_ids,
+        )
+        if unmatched_names:
+            st.warning(
+                f"Couldn't match to a real player: {', '.join(unmatched_names)}. Check the spelling and try again."
+            )
+        if updated_swap_include != swap_include_ids or updated_swap_exclude != swap_exclude_ids:
+            st.session_state["preseason_swap_include_ids"] = updated_swap_include
+            st.session_state["preseason_swap_exclude_ids"] = updated_swap_exclude
+            if "preseason_squad_editor" in st.session_state:
+                del st.session_state["preseason_squad_editor"]
+            st.rerun()
 
         lineup = preseason_section["lineup"]
         st.markdown(f"**Suggested starting XI ({lineup['formation']})**")

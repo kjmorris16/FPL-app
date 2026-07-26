@@ -231,3 +231,19 @@ def test_select_starting_xi_uses_all_11_highest_scorers_when_formation_allows():
     # Sanity: the two weakest FWD/DEF/MID benched should be the lowest scorers overall.
     bench_scores = sorted(p["score"] for p in result["bench"])
     assert bench_scores[-1] <= min(starting_scores)
+
+
+def test_score_percentage_is_100_when_squad_matches_baseline():
+    assert optimizer.score_percentage(42.0, 42.0) == 100.0
+
+
+def test_score_percentage_drops_below_100_when_squad_is_worse_than_baseline():
+    assert optimizer.score_percentage(38.0, 40.0) == 95.0
+
+
+def test_score_percentage_zero_baseline_is_zero_not_a_division_error():
+    assert optimizer.score_percentage(0.0, 0.0) == 0.0
+
+
+def test_score_percentage_rounds_to_one_decimal():
+    assert optimizer.score_percentage(1.0, 3.0) == 33.3

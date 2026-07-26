@@ -547,12 +547,38 @@ is otherwise much noisier than plain `st.dataframe` gives you.
 
 **"Must include" / "must exclude" player pickers** let you force specific
 players in or out and have the ILP solver rebuild the rest of the squad
-(and total score) around that constraint -- rather than a free-form edit of
-the result table, which could easily produce an invalid squad (wrong
+(and total score) around that constraint -- rather than a raw edit of the
+result table's cells, which could easily produce an invalid squad (wrong
 budget, too many from one team, wrong position counts) on its own. A
 contradictory request (including and excluding the same player, or
 excluding so many of one position that the quota can't be filled) surfaces
 the same infeasibility error as a too-small budget.
+
+**Editing a name directly in the squad table** is a friendlier front-end to
+that same mechanism, not a second, riskier one: type a different player's
+name into the "Player" column (`st.data_editor`) and, once it matches
+exactly one real player, that player is force-included and the row's
+original player is force-excluded, then the solver re-optimizes everyone
+else around it -- so it's just as impossible to produce an invalid squad
+this way as through the pickers above. An unmatched or ambiguous name (e.g.
+a typo, or two players who share a display name) is left unapplied with a
+warning rather than guessed at. The trade-off: `st.data_editor` can't render
+a `Styler`, so this table alone loses the fixture-difficulty colors below --
+the starting XI and bench tables keep them, since they stay read-only.
+Table-driven swaps live in their own `session_state` entry (`src/dashboard/
+table_edits.py`), separate from the pickers' own widget state, and are
+unioned with them each render -- this sidesteps Streamlit's rule against
+writing to a widget's `session_state` key after that widget has already
+been instantiated earlier in the same script run.
+
+**Squad quality metric**: the summed per-player score has no natural
+ceiling (it's just projected points across a few gameweeks), so instead of
+showing that raw number, "Squad quality" is that total as a percentage of
+the best score achievable for the same budget with *no* must-include/
+exclude constraints (`src/preseason/optimizer.py:score_percentage`). 100%
+means the squad is the true optimum; it only drops when a must-include/
+exclude pick (from either the pickers or a table edit) forces the solver
+away from it.
 
 Verified end-to-end against a synthetic 8-team league (correct budget/
 position/team-cap enforcement in the ILP, correct formation and bench
