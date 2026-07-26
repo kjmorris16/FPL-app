@@ -170,3 +170,31 @@ def test_value_per_million_computed(db_conn):
 
     result = scoring.compute_preseason_scores(db_conn, start_gw=1, horizon_gws=1)[101]
     assert result["value_per_million"] == round(result["score"] / 10.0, 2)
+
+
+def test_default_horizon_matches_fixture_ticker_window():
+    # The dashboard's fixture-difficulty ticker only ever shows
+    # FIXTURE_TICKER_GWS gameweeks -- scoring across more than that would
+    # let fixtures the user can't see quietly move the score, so the score
+    # would no longer be explained by what's actually displayed.
+    assert c.FIXTURE_HORIZON_GWS == c.FIXTURE_TICKER_GWS
+
+
+def test_score_is_not_affected_by_fixtures_beyond_the_default_horizon(db_conn):
+    _insert_team(db_conn, 1)
+    _insert_team(db_conn, 2)
+    _insert_player(db_conn, 101, 1, c.FWD, "Striker")
+    _insert_prev_season(db_conn, 101, minutes=3000, expected_goals=18.0, expected_assists=3.0)
+    for gw in range(1, c.FIXTURE_HORIZON_GWS + 1):
+        _insert_fixture(db_conn, gw, event=gw, team_h=1, team_a=2, h_diff=3, a_diff=3)
+    db_conn.commit()
+    without_extra_fixture = scoring.compute_preseason_scores(db_conn, start_gw=1, horizon_gws=c.FIXTURE_HORIZON_GWS)[101]["score"]
+
+    # A fixture just past the horizon, with a much easier difficulty than
+    # the neutral ones above -- if this moved the score, the score would no
+    # longer match what the dashboard's fixture ticker shows for this player.
+    _insert_fixture(db_conn, 999, event=c.FIXTURE_HORIZON_GWS + 1, team_h=1, team_a=2, h_diff=1, a_diff=1)
+    db_conn.commit()
+    with_extra_fixture = scoring.compute_preseason_scores(db_conn, start_gw=1, horizon_gws=c.FIXTURE_HORIZON_GWS)[101]["score"]
+
+    assert with_extra_fixture == without_extra_fixture

@@ -36,6 +36,26 @@ LOGO_PATH = Path(__file__).resolve().parent / "assets" / "logo.png"
 
 st.set_page_config(page_title="FPL Dashboard", page_icon=str(LOGO_PATH), layout="wide")
 
+# On a narrow (mobile) screen, the tab bar has more tabs than fit in one row,
+# so Streamlit makes it horizontally scrollable -- but the tab bar's grey
+# underline is only ever as wide as the *visible* row, not the full
+# scrollable content. Scrolling to a later tab then leaves a visible gap
+# between where the underline stops and the active tab's own highlight
+# further right. Wrapping onto a second line instead removes that internal
+# overflow entirely, so the underline always spans exactly what's rendered.
+st.markdown(
+    """
+    <style>
+    [data-testid="stTabs"] [role="tablist"] {
+        flex-wrap: wrap;
+        overflow-x: visible;
+        row-gap: 0.25rem;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 logo_col, title_col = st.columns([1, 8])
 with logo_col:
     st.image(str(LOGO_PATH), width=80)
@@ -53,6 +73,17 @@ with st.sidebar:
             # Stashed in session_state, not shown here directly: st.rerun() below
             # discards anything written in this run before the user sees it, so
             # the message display happens on the *next* run instead.
+            st.session_state["refresh_messages"] = dash_refresh.refresh_all(manager_id=manager_id, league_id=league_id)
+        st.rerun()
+
+    # Loaded automatically once per session if there's no squad snapshot yet,
+    # so a fresh deploy (or a just-woken free-tier app) shows real data on
+    # first view instead of every tab's "no data yet" message until Refresh
+    # is clicked manually. Guarded the same way as the Pre-Season tab's
+    # auto-fetch, so a bad manager/league ID doesn't retry on every rerun.
+    if dash_data.load_squad_section(manager_id) is None and not st.session_state.get("auto_refresh_attempted"):
+        st.session_state["auto_refresh_attempted"] = True
+        with st.spinner("Loading data for the first time..."):
             st.session_state["refresh_messages"] = dash_refresh.refresh_all(manager_id=manager_id, league_id=league_id)
         st.rerun()
 

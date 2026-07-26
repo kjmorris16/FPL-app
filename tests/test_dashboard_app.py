@@ -28,11 +28,18 @@ def nonexistent_db(tmp_path, monkeypatch):
     return db_path
 
 
-def test_dashboard_renders_without_crashing_on_nonexistent_db(nonexistent_db):
+def test_dashboard_renders_without_crashing_on_nonexistent_db(nonexistent_db, monkeypatch):
     """A brand new deploy (or a first local run) has no data/fpl.db at all.
     The app must create the schema itself rather than crashing with
     'no such table' before the user ever sees a friendly empty-state message.
     """
+    import src.dashboard.refresh as refresh_module
+
+    # No squad snapshot on a brand-new DB now triggers the main data
+    # auto-refresh automatically -- mocked here so the test stays fast and
+    # network-free rather than actually hitting the live FPL API.
+    monkeypatch.setattr(refresh_module, "refresh_all", lambda manager_id, league_id: ["mocked"])
+
     at = AppTest.from_file("src/dashboard/app.py", default_timeout=30)
     at.run()
 
@@ -42,7 +49,13 @@ def test_dashboard_renders_without_crashing_on_nonexistent_db(nonexistent_db):
     assert "No squad snapshot yet" in info_texts
 
 
-def test_dashboard_renders_without_crashing_on_empty_db(empty_db):
+def test_dashboard_renders_without_crashing_on_empty_db(empty_db, monkeypatch):
+    import streamlit as st
+    import src.dashboard.refresh as refresh_module
+
+    st.cache_data.clear()
+    monkeypatch.setattr(refresh_module, "refresh_all", lambda manager_id, league_id: ["mocked"])
+
     at = AppTest.from_file("src/dashboard/app.py", default_timeout=30)
     at.run()
 
@@ -69,8 +82,10 @@ def test_refresh_button_status_messages_survive_the_rerun(empty_db, monkeypatch)
     confirms the messages are stashed in session_state and actually shown on
     the following run instead of silently disappearing.
     """
+    import streamlit as st
     import src.dashboard.refresh as refresh_module
 
+    st.cache_data.clear()
     monkeypatch.setattr(refresh_module, "refresh_all", lambda manager_id, league_id: ["✅ Fake refresh step done."])
 
     at = AppTest.from_file("src/dashboard/app.py", default_timeout=30)
@@ -82,6 +97,44 @@ def test_refresh_button_status_messages_survive_the_rerun(empty_db, monkeypatch)
 
     all_text = " ".join(el.value for el in at.get("markdown"))
     assert "Fake refresh step done" in all_text
+
+
+def test_main_data_auto_refreshes_once_per_session_without_clicking_refresh(empty_db, monkeypatch):
+    """No squad snapshot yet should trigger `refresh_all` automatically on
+    the very first load -- no manual button click required. Same
+    st.rerun()-discards-output hazard as the manual button applies here too.
+    """
+    import streamlit as st
+    import src.dashboard.refresh as refresh_module
+
+    st.cache_data.clear()
+    monkeypatch.setattr(refresh_module, "refresh_all", lambda manager_id, league_id: ["✅ Fake auto refresh done."])
+
+    at = AppTest.from_file("src/dashboard/app.py", default_timeout=30)
+    at.run()
+    assert not at.exception
+
+    all_text = " ".join(el.value for el in at.get("markdown"))
+    assert "Fake auto refresh done" in all_text
+
+
+def test_main_data_does_not_auto_refresh_again_once_already_attempted(empty_db, monkeypatch):
+    """Guards against repeatedly hammering the FPL API on every rerun if the
+    manager/league ID is wrong and a squad snapshot never actually appears."""
+    import streamlit as st
+    import src.dashboard.refresh as refresh_module
+
+    st.cache_data.clear()
+    calls = []
+    monkeypatch.setattr(refresh_module, "refresh_all", lambda manager_id, league_id: calls.append(1) or ["✅ Fake auto refresh done."])
+
+    at = AppTest.from_file("src/dashboard/app.py", default_timeout=30)
+    at.run()
+    assert not at.exception
+    assert len(calls) == 1
+
+    at.run()
+    assert len(calls) == 1
 
 
 def test_preseason_auto_fetches_previous_season_stats_on_first_load(empty_db, monkeypatch):
@@ -104,6 +157,9 @@ def test_preseason_auto_fetches_previous_season_stats_on_first_load(empty_db, mo
     # there's nothing to fetch.
     st.cache_data.clear()
 
+    # No squad snapshot here either, so the main data auto-refresh also
+    # fires this run -- mocked so the test stays fast and network-free.
+    monkeypatch.setattr(refresh_module, "refresh_all", lambda manager_id, league_id: ["mocked"])
     monkeypatch.setattr(refresh_module, "refresh_previous_season_stats", lambda: ["✅ Fake previous-season fetch done."])
 
     at = AppTest.from_file("src/dashboard/app.py", default_timeout=30)
@@ -130,6 +186,9 @@ def test_preseason_does_not_auto_fetch_again_once_already_attempted(empty_db, mo
     # there's nothing to fetch.
     st.cache_data.clear()
 
+    # No squad snapshot here either, so the main data auto-refresh also
+    # fires this run -- mocked so the test stays fast and network-free.
+    monkeypatch.setattr(refresh_module, "refresh_all", lambda manager_id, league_id: ["mocked"])
     calls = []
     monkeypatch.setattr(refresh_module, "refresh_previous_season_stats", lambda: calls.append(1) or ["✅ Fake fetch done."])
 

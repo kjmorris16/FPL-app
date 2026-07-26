@@ -390,6 +390,16 @@ of the file -- Streamlit otherwise runs scripts with only their own
 directory on the path, which breaks `import src...` regardless of your
 working directory when you launch it.)
 
+On a narrow screen the five tabs don't all fit in one row, so Streamlit
+makes the tab bar horizontally scrollable -- but its decorative grey
+underline is only ever as wide as the visible row, not the full scrollable
+content, so scrolling to a later tab left a visible gap between where the
+grey line stopped and the active tab's own colored underline further
+right. A small `st.markdown(..., unsafe_allow_html=True)` block forces the
+tab bar to wrap onto a second line instead of scrolling, which removes that
+internal overflow entirely -- the underline then always spans exactly what's
+actually rendered, on both lines.
+
 Four tabs, each backed by the exact same modules the CLIs use (no logic
 duplicated for the dashboard):
 - **My Squad** -- bank/free transfers/squad value as metrics, and the 15-man
@@ -404,14 +414,20 @@ duplicated for the dashboard):
 - **Differentials** -- top candidates to transfer in and differentials
   already owned, side by side, using the configured league ID.
 
-**Manual refresh** (`src/dashboard/refresh.py`, triggered by the sidebar
-button): reruns Phase 1's ingestion, recomputes projections, refreshes your
-squad and chip usage, and refreshes the configured league -- each step
-wrapped independently so one failure (no network, or the placeholder league
-not existing yet) doesn't block the others. All the reads elsewhere are
-cached for a minute (`st.cache_data`) so clicking around the tabs doesn't
-recompute transfer combos or differential rankings on every click; the
-refresh button explicitly clears that cache afterwards.
+**Refresh** (`src/dashboard/refresh.py`): reruns Phase 1's ingestion,
+recomputes projections, refreshes your squad and chip usage, and refreshes
+the configured league -- each step wrapped independently so one failure (no
+network, or the placeholder league not existing yet) doesn't block the
+others. All the reads elsewhere are cached for a minute (`st.cache_data`) so
+clicking around the tabs doesn't recompute transfer combos or differential
+rankings on every click; refreshing explicitly clears that cache afterwards.
+Besides the sidebar's manual "Refresh data" button, this now also runs
+automatically the first time the app loads a session with no squad snapshot
+yet for the configured manager -- guarded by a `session_state` flag so it
+only ever attempts once per session, the same pattern the Pre-Season tab's
+auto-fetch below uses. A fresh deploy (or a just-woken free-tier app) shows
+real data on first view instead of every tab's "no data yet" message until
+someone thinks to click Refresh.
 
 Read-heavy `st.cache_data` functions are the norm here, but one non-obvious
 Streamlit behavior was worth catching before shipping: `st.rerun()` right
@@ -535,6 +551,18 @@ table, starting XI + formation, bench, and captain/vice. Fixture difficulty
 team-fixtures lookup the scoring engine itself relies on, so what's
 displayed always matches what actually drove the score -- a double
 gameweek shows both fixtures' difficulty joined with "/", a blank shows "-".
+
+`FIXTURE_HORIZON_GWS` (how many gameweeks the score itself projects across)
+and `FIXTURE_TICKER_GWS` (how many the dashboard displays) are deliberately
+the same constant (`src/preseason/constants.py`), not just coincidentally
+equal -- they used to be 5 and 3 respectively, which meant two gameweeks of
+fixture difficulty were quietly moving the score without ever being shown,
+so a player's displayed GW1-3 fixture colors didn't fully explain their
+score (confirmed with a reproduction: two players with identical GW1-3
+fixtures but different GW4-5 ones ended up with different scores despite
+looking identical in the ticker). Regression-tested in
+`tests/test_preseason_scoring.py` -- one test pins the two constants equal,
+the other confirms a fixture just past the horizon never changes the score.
 
 **Previous-season stats load automatically.** The first time the tab loads
 with players present (from the sidebar's Refresh) but nothing yet in

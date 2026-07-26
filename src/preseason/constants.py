@@ -11,9 +11,15 @@ DEFAULT_BUDGET_TENTHS = 1000  # FPL's well-established standard: a £100.0m star
 SQUAD_COMPOSITION = {GK: 2, DEF: 5, MID: 5, FWD: 3}
 MAX_PLAYERS_PER_TEAM = 3
 
-FIXTURE_HORIZON_GWS = 5  # "opening 3-5 gameweek difficulty" per the brief
 START_GW = 1
-FIXTURE_TICKER_GWS = 3  # how many upcoming gameweeks' difficulty to display per team
+
+# Kept as a single constant on purpose: scoring projects across exactly the
+# gameweeks the dashboard's fixture-difficulty ticker displays, no more --
+# projecting further than what's shown would let fixtures the user can't
+# see quietly move the score, making the visible ticker not actually
+# explain it.
+FIXTURE_HORIZON_GWS = 3  # "opening 3-5 gameweek difficulty" per the brief
+FIXTURE_TICKER_GWS = FIXTURE_HORIZON_GWS
 
 # A full Premier League season's minutes (38 games), used as the denominator
 # for a player's last-season minutes-share.
