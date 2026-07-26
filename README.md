@@ -474,10 +474,12 @@ placeholder row.
 python -m src.ingest.previous_season
 ```
 
-Note this is a separate pull from the dashboard/CLI's live scoring run --
-run it once (or whenever you want to refresh last-season data) before
-using the pre-season selector; `src/preseason/scoring.py` reads whatever
-was last stored, it doesn't trigger this ingestion itself.
+The CLI command above is for a one-off/manual run; the dashboard's
+Pre-Season tab triggers this itself automatically the first time it loads
+with `players` populated but nothing stored in
+`player_previous_season_stats` yet (see below) -- no button click needed.
+`src/preseason/scoring.py` just reads whatever's currently stored, it
+doesn't trigger ingestion itself either way.
 
 ### Scoring (`src/preseason/scoring.py`)
 
@@ -527,12 +529,21 @@ The dashboard's fifth tab ("Pre-Season Squad") shows the same thing with a
 clear banner: *"Based on last season's data and pre-season signal -- treat
 as a starting point, not a certainty, until live data arrives after GW1."*
 Squad grouped by position (price, score, confidence, next-3-gameweek
-fixture difficulty per team, notes), an overall squad total-score metric
-above the table, starting XI + formation, bench, and captain/vice. Fixture
-difficulty (`src/preseason/data_access.py:get_team_fixture_ticker`) reuses
-the same team-fixtures lookup the scoring engine itself relies on, so what's
+fixture difficulty per team, notes), a squad quality metric above the
+table, starting XI + formation, bench, and captain/vice. Fixture difficulty
+(`src/preseason/data_access.py:get_team_fixture_ticker`) reuses the same
+team-fixtures lookup the scoring engine itself relies on, so what's
 displayed always matches what actually drove the score -- a double
 gameweek shows both fixtures' difficulty joined with "/", a blank shows "-".
+
+**Previous-season stats load automatically.** The first time the tab loads
+with players present (from the sidebar's Refresh) but nothing yet in
+`player_previous_season_stats`, it fetches them itself -- a spinner shows
+while the ~700-request pull runs, no button click needed. This only ever
+attempts once per session (a data-coverage caption always shows current
+coverage); if it comes back having stored nothing (no network, a rate
+limit), a "Retry fetching previous-season stats" button appears rather than
+silently retrying forever on every rerun.
 
 The GW1/GW2/GW3 columns in the dashboard (squad, starting XI, and bench
 tables) are color-coded -- a ColorBrewer-style green-to-red diverging scale
@@ -545,40 +556,32 @@ logic, separate from `app.py`'s Streamlit-script side effects -- and pinned
 to 1-decimal float formatting, since a bare Styler's default float display
 is otherwise much noisier than plain `st.dataframe` gives you.
 
-**"Must include" / "must exclude" player pickers** let you force specific
-players in or out and have the ILP solver rebuild the rest of the squad
-(and total score) around that constraint -- rather than a raw edit of the
-result table's cells, which could easily produce an invalid squad (wrong
-budget, too many from one team, wrong position counts) on its own. A
-contradictory request (including and excluding the same player, or
-excluding so many of one position that the quota can't be filled) surfaces
-the same infeasibility error as a too-small budget.
-
-**Editing a name directly in the squad table** is a friendlier front-end to
-that same mechanism, not a second, riskier one: type a different player's
-name into the "Player" column (`st.data_editor`) and, once it matches
-exactly one real player, that player is force-included and the row's
-original player is force-excluded, then the solver re-optimizes everyone
-else around it -- so it's just as impossible to produce an invalid squad
-this way as through the pickers above. An unmatched or ambiguous name (e.g.
-a typo, or two players who share a display name) is left unapplied with a
-warning rather than guessed at. The trade-off: `st.data_editor` can't render
-a `Styler`, so this table alone loses the fixture-difficulty colors below --
-the starting XI and bench tables keep them, since they stay read-only.
-Table-driven swaps live in their own `session_state` entry (`src/dashboard/
-table_edits.py`), separate from the pickers' own widget state, and are
-unioned with them each render -- this sidesteps Streamlit's rule against
-writing to a widget's `session_state` key after that widget has already
-been instantiated earlier in the same script run.
+**Swapping a player is done inline, in the squad table itself.** Each row's
+"Player" cell is a dropdown (`st.column_config.SelectboxColumn`) listing
+every player as a disambiguated "name (position, team) #id" label -- the
+same label format an earlier "must include"/"must exclude" picker UI used,
+before it was folded into this single in-table control. Picking a
+different player from the dropdown force-includes them and force-excludes
+the row's original player, then the ILP solver re-optimizes everyone else
+around that constraint (`src/dashboard/table_edits.py:apply_label_edits`)
+-- so it's just as impossible to produce an invalid squad (wrong budget,
+too many from one team, wrong position counts) this way as it would be
+editing the pickers directly. Because the dropdown only ever offers real
+players, there's no free text and so no typos or ambiguous names to
+handle. The trade-off: `st.data_editor` can't render a `Styler`, so this
+one table loses the fixture-difficulty colors -- the starting XI and bench
+tables below keep them, since they stay read-only. Swaps are tracked in
+their own `session_state` entry, not a widget's own state, since they need
+to be set in reaction to an edit made later in the same script run than
+the entry that would otherwise own that state.
 
 **Squad quality metric**: the summed per-player score has no natural
 ceiling (it's just projected points across a few gameweeks), so instead of
 showing that raw number, "Squad quality" is that total as a percentage of
 the best score achievable for the same budget with *no* must-include/
 exclude constraints (`src/preseason/optimizer.py:score_percentage`). 100%
-means the squad is the true optimum; it only drops when a must-include/
-exclude pick (from either the pickers or a table edit) forces the solver
-away from it.
+means the squad is the true optimum; it only drops when a table edit
+forces the solver away from it.
 
 Verified end-to-end against a synthetic 8-team league (correct budget/
 position/team-cap enforcement in the ILP, correct formation and bench

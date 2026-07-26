@@ -21,7 +21,7 @@ from src.config import DEFAULT_LEAGUE_ID, DEFAULT_MANAGER_ID
 from src.dashboard import data as dash_data
 from src.dashboard import refresh as dash_refresh
 from src.dashboard.styling import style_fixture_columns
-from src.dashboard.table_edits import apply_name_edits
+from src.dashboard.table_edits import apply_label_edits
 from src.db import init_db
 from src.preseason import constants as preseason_constants
 from src.scoring.confidence import confidence_label
@@ -222,7 +222,20 @@ with tab_preseason:
         "not a certainty, until live data arrives after GW1."
     )
 
-    if st.button("📥 Fetch previous-season stats"):
+    coverage = dash_data.load_preseason_coverage()
+
+    # Fetched automatically the first time this tab loads with nothing
+    # stored, rather than requiring a manual click -- guarded by a
+    # session_state flag so it only ever attempts once per session (this is a
+    # ~700-request pull, so it isn't something to silently retry forever if
+    # it comes back empty). Needs `players` to already be populated (the
+    # sidebar's "Refresh data"), which is why it also checks total_players.
+    if (
+        coverage["total_players"] > 0
+        and coverage["players_with_stats"] == 0
+        and not st.session_state.get("preseason_auto_fetch_attempted")
+    ):
+        st.session_state["preseason_auto_fetch_attempted"] = True
         with st.spinner("Fetching last season's stats for every player -- one API call each, can take a couple of minutes..."):
             st.session_state["preseason_refresh_messages"] = dash_refresh.refresh_previous_season_stats()
         st.rerun()
@@ -232,17 +245,19 @@ with tab_preseason:
             st.write(message)
         st.session_state["preseason_refresh_messages"] = None
 
-    st.caption(
-        "Separate from the sidebar's Refresh button -- this pulls one-time, ~700-request data that "
-        "doesn't change during the season, so it isn't bundled into the weekly refresh."
-    )
-
     coverage = dash_data.load_preseason_coverage()
     st.caption(
         f"Data coverage: {coverage['players_with_stats']}/{coverage['total_players']} current players have "
-        "previous-season stats stored. If this is 0 (or far lower than expected), the fetch above didn't "
-        "actually store data -- everyone will score 0 and the squad below will look arbitrary."
+        "previous-season stats stored -- fetched automatically the first time this tab loads with none stored "
+        "(a one-time, ~700-request pull, separate from the sidebar's weekly Refresh, that isn't repeated once "
+        "it's there)."
     )
+    if coverage["total_players"] > 0 and coverage["players_with_stats"] == 0 and st.session_state.get("preseason_auto_fetch_attempted"):
+        st.warning("The automatic fetch didn't store any data -- everyone will score 0 and the squad below will look arbitrary.")
+        if st.button("🔄 Retry fetching previous-season stats"):
+            with st.spinner("Fetching last season's stats for every player -- one API call each, can take a couple of minutes..."):
+                st.session_state["preseason_refresh_messages"] = dash_refresh.refresh_previous_season_stats()
+            st.rerun()
 
     preseason_budget = st.number_input("Budget (£m)", value=preseason_constants.DEFAULT_BUDGET_TENTHS / 10, step=0.5)
 
@@ -254,29 +269,14 @@ with tab_preseason:
     id_by_label = {label: pid for pid, label in label_by_id.items()}
     sorted_labels = sorted(id_by_label, key=lambda label: player_directory[id_by_label[label]]["web_name"])
 
-    pick_col, drop_col = st.columns(2)
-    with pick_col:
-        must_include_labels = st.multiselect(
-            "Must include these players", options=sorted_labels, key="preseason_must_include",
-            help="Force the optimizer to keep these players and rebuild the rest of the squad around them.",
-        )
-    with drop_col:
-        must_exclude_labels = st.multiselect(
-            "Must exclude these players", options=sorted_labels, key="preseason_must_exclude",
-            help="Force the optimizer to leave these players out entirely.",
-        )
-    # Swaps made by editing a name directly in the squad table below (see
-    # `apply_name_edits`) are tracked separately from the pickers above, then
-    # unioned in here -- they share the same underlying must-include/exclude
-    # mechanism but live in plain session_state, not a widget's own state, so
-    # setting them doesn't hit Streamlit's "can't modify a widget's state
-    # after it's been instantiated this run" rule (the pickers above have
-    # already been instantiated by this point in the script).
+    # Which players are force-included/excluded, driven entirely by editing
+    # the squad table's Player dropdown below (see `apply_label_edits`) --
+    # kept in plain session_state, not a widget's own state, since it needs
+    # to be set (to react to an edit) after this point in the script.
     swap_include_ids = st.session_state.setdefault("preseason_swap_include_ids", set())
     swap_exclude_ids = st.session_state.setdefault("preseason_swap_exclude_ids", set())
-
-    must_include_ids = tuple(sorted({id_by_label[label] for label in must_include_labels} | swap_include_ids))
-    must_exclude_ids = tuple(sorted({id_by_label[label] for label in must_exclude_labels} | swap_exclude_ids))
+    must_include_ids = tuple(sorted(swap_include_ids))
+    must_exclude_ids = tuple(sorted(swap_exclude_ids))
 
     preseason_section = dash_data.load_preseason_section(
         budget_tenths=round(preseason_budget * 10),
@@ -286,8 +286,8 @@ with tab_preseason:
 
     if preseason_section is None:
         st.info(
-            "No previous-season stats ingested yet. Click **Fetch previous-season stats** above "
-            "(the sidebar's Refresh must be run at least once first, so there's a player list to fetch)."
+            "No previous-season stats ingested yet -- run the sidebar's **Refresh data** at least once first "
+            "so there's a player list, then reopen this tab to fetch it automatically."
         )
     elif "error" in preseason_section:
         st.error(preseason_section["error"])
@@ -303,8 +303,8 @@ with tab_preseason:
             "Squad quality",
             f"{preseason_section['score_pct']:.1f}%",
             help="Percentage of the best possible squad for this budget with no must-include/exclude picks "
-            "applied -- 100% means this is that optimal squad; it only drops below that when a must-include/"
-            "exclude pick (from the pickers or table edits above) forces the solver away from it.",
+            "applied -- 100% means this is that optimal squad; it only drops below that when a table edit "
+            "below forces the solver away from it.",
         )
         col2.metric("Squad cost", f"£{preseason_section['total_cost'] / 10:.1f}m")
         col3.metric("Budget", f"£{preseason_section['budget'] / 10:.1f}m")
@@ -326,30 +326,34 @@ with tab_preseason:
             row["Notes"] = "; ".join(p.get("notes", []))
             return row
 
-        st.markdown("**Suggested 15-man squad** -- edit a name in the Player column to swap that player out.")
+        st.markdown("**Suggested 15-man squad** -- pick a different player from the Player dropdown to swap them in.")
         sorted_squad = sorted(squad, key=lambda p: (p["element_type"], -p["score"]))
         squad_df = pd.DataFrame([_preseason_row(p) for p in sorted_squad])
+        # Same dropdown (and the same disambiguated "name (pos, team) #id"
+        # labels) the must-include/exclude pickers used, so the Player column
+        # only ever holds a value that resolves to exactly one real player --
+        # no free text, so no typos or ambiguous names to handle.
+        squad_df["Player"] = [label_by_id.get(p["player_id"], "?") for p in sorted_squad]
         edited_squad_df = st.data_editor(
             squad_df,
             disabled=[col for col in squad_df.columns if col != "Player"],
-            column_config={"Score": st.column_config.NumberColumn(format="%.1f")},
+            column_config={
+                "Player": st.column_config.SelectboxColumn("Player", options=sorted_labels, required=True),
+                "Score": st.column_config.NumberColumn(format="%.1f"),
+            },
             hide_index=True,
             use_container_width=True,
             key="preseason_squad_editor",
         )
         st.caption(
-            "Editing here re-runs the same solver as the pickers above (so it still can't produce an invalid "
-            "squad), which also means this table can't show the fixture-difficulty colors -- those are still "
-            "on the starting XI and bench tables below."
+            "Editing here re-runs the same solver used to build the squad (so it still can't produce an "
+            "invalid squad), which also means this table can't show the fixture-difficulty colors -- those "
+            "are still on the starting XI and bench tables below."
         )
 
-        updated_swap_include, updated_swap_exclude, unmatched_names = apply_name_edits(
-            sorted_squad, edited_squad_df["Player"].tolist(), player_directory, swap_include_ids, swap_exclude_ids,
+        updated_swap_include, updated_swap_exclude = apply_label_edits(
+            sorted_squad, edited_squad_df["Player"].tolist(), label_by_id, id_by_label, swap_include_ids, swap_exclude_ids,
         )
-        if unmatched_names:
-            st.warning(
-                f"Couldn't match to a real player: {', '.join(unmatched_names)}. Check the spelling and try again."
-            )
         if updated_swap_include != swap_include_ids or updated_swap_exclude != swap_exclude_ids:
             st.session_state["preseason_swap_include_ids"] = updated_swap_include
             st.session_state["preseason_swap_exclude_ids"] = updated_swap_exclude
