@@ -611,6 +611,48 @@ exclude constraints (`src/preseason/optimizer.py:score_percentage`). 100%
 means the squad is the true optimum; it only drops when a table edit
 forces the solver away from it.
 
+### Scoring your actual squad from a screenshot (`src/preseason/squad_ocr.py`)
+
+The recommendation above is the optimizer's pick, not necessarily what you
+actually own -- a "Score your actual squad" section lets you upload a
+screenshot of your real FPL squad and see it scored the same way. This is
+OCR (`pytesseract`, over Tesseract -- `packages.txt` installs the system
+binary on Streamlit Cloud), which is inherently approximate on a phone
+screenshot, so the design leans on a correction step rather than assuming
+a clean read:
+
+1. `squad_ocr.extract_text` runs OCR over the uploaded image.
+2. `squad_ocr.match_players_from_text` fuzzy-matches (`difflib.SequenceMatcher`,
+   comparing each OCR'd line against every player's `web_name`) each line
+   against the real player list, keeping only the single best match per
+   line above a similarity threshold, deduplicated by player (highest-
+   confidence line wins if a player's name is read more than once).
+3. The matches populate the same kind of dropdown-editable table
+   (`st.column_config.SelectboxColumn`) used for the recommended squad --
+   OCR only ever suggests a starting point, every row is a real player
+   picked from a dropdown, so a misread is a one-click fix rather than a
+   dead end, and `num_rows="dynamic"` lets you add or remove rows if OCR
+   matched fewer or more than your actual 15.
+4. `dash_data.load_uploaded_squad_section` scores exactly the players
+   you've confirmed (no re-optimization -- this is *your* squad, not a
+   suggestion) against the same scoring engine and the same quality-vs-
+   best-possible-squad percentage, and works out a starting XI/captain/
+   vice only once you have a valid 15 (2 GK/5 DEF/5 MID/3 FWD); otherwise
+   it just shows the flat scored list.
+
+List-view screenshots (a plain scrollable list of names, prices, and
+points) read far more reliably than pitch-view ones (small text overlaid
+on shirts) -- the UI says so up front, and a "Raw text the OCR read from
+the image" expander appears if nothing matched at all, so a bad read is
+visible rather than silently empty.
+
+Verified against a synthetically-generated list-view-style screenshot (a
+plain image with the 15 expected names drawn as text) -- matched all 15
+correctly, scored them, and rendered a full starting XI/bench/captain
+breakdown in a live browser session. Not yet tried against a real photo of
+the actual FPL app, which will have more visual noise than a clean
+synthetic image.
+
 Verified end-to-end against a synthetic 8-team league (correct budget/
 position/team-cap enforcement in the ILP, correct formation and bench
 ordering, confidence flags rendering correctly for no-history players) and

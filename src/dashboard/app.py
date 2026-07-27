@@ -24,6 +24,7 @@ from src.dashboard.styling import style_fixture_columns
 from src.dashboard.table_edits import apply_label_edits
 from src.db import init_db
 from src.preseason import constants as preseason_constants
+from src.preseason import squad_ocr
 from src.scoring.confidence import confidence_label
 
 # A fresh deploy (or a first local run) has no data/fpl.db at all -- data/ is
@@ -410,3 +411,107 @@ with tab_preseason:
             "Captain/vice picked as the two highest-scoring starting XI players -- same simple rule "
             "Phase 3 uses in-season, just against the pre-season score instead of a live projection."
         )
+
+        st.divider()
+        st.markdown("### Score your actual squad")
+        st.caption(
+            "Upload a screenshot of your real FPL squad (list view reads more reliably than pitch view) and "
+            "this will try to read off your 15 picks and score them the same way as the recommendation above."
+        )
+
+        uploaded_image = st.file_uploader(
+            "Upload a screenshot of your squad", type=["png", "jpg", "jpeg"], key="squad_screenshot_uploader",
+        )
+        if uploaded_image is not None:
+            image_bytes = uploaded_image.getvalue()
+            image_hash = hash(image_bytes)
+            # OCR only runs once per newly-uploaded image, not on every
+            # unrelated rerun -- otherwise it would keep resetting the table
+            # below and silently discard any manual corrections.
+            if st.session_state.get("uploaded_squad_image_hash") != image_hash:
+                st.session_state["uploaded_squad_image_hash"] = image_hash
+                with st.spinner("Reading player names from the screenshot..."):
+                    ocr_text = squad_ocr.extract_text(image_bytes)
+                    matches = squad_ocr.match_players_from_text(ocr_text, player_directory)
+                st.session_state["uploaded_squad_player_ids"] = [pid for pid, _ratio in matches][:15]
+                if not matches:
+                    st.session_state["uploaded_squad_ocr_text"] = ocr_text
+
+        if st.session_state.get("uploaded_squad_player_ids") is not None:
+            matched_ids = st.session_state["uploaded_squad_player_ids"]
+            if matched_ids:
+                st.caption(
+                    f"Matched {len(matched_ids)}/15 players from the screenshot -- this is OCR-based and "
+                    "won't always be perfect, so double-check every row below. Fix a misread from its "
+                    "dropdown, or add/remove rows to reach your real 15."
+                )
+            else:
+                st.warning(
+                    "Couldn't confidently match any players in that screenshot -- add rows below manually, "
+                    "or try a clearer, list-view screenshot."
+                )
+                if st.session_state.get("uploaded_squad_ocr_text", "").strip():
+                    with st.expander("Raw text the OCR read from the image"):
+                        st.text(st.session_state["uploaded_squad_ocr_text"])
+
+            uploaded_df = pd.DataFrame({"Player": [label_by_id.get(pid, "?") for pid in matched_ids]})
+            edited_uploaded_df = st.data_editor(
+                uploaded_df,
+                column_config={"Player": st.column_config.SelectboxColumn("Player", options=sorted_labels, required=True)},
+                num_rows="dynamic",
+                hide_index=True,
+                use_container_width=True,
+                key="uploaded_squad_editor",
+            )
+            edited_ids = [id_by_label[label] for label in edited_uploaded_df["Player"].tolist() if label in id_by_label]
+            if edited_ids != matched_ids:
+                st.session_state["uploaded_squad_player_ids"] = edited_ids
+                st.rerun()
+
+            unique_ids = list(dict.fromkeys(edited_ids))
+            if len(unique_ids) != len(edited_ids):
+                st.warning("The same player is listed more than once -- duplicates are only counted once below.")
+
+            if st.button("🗑️ Clear imported squad"):
+                for key in ("uploaded_squad_player_ids", "uploaded_squad_image_hash", "uploaded_squad_ocr_text"):
+                    st.session_state.pop(key, None)
+                if "uploaded_squad_editor" in st.session_state:
+                    del st.session_state["uploaded_squad_editor"]
+                st.rerun()
+
+            if unique_ids:
+                uploaded_section = dash_data.load_uploaded_squad_section(
+                    player_ids=tuple(unique_ids), budget_tenths=round(preseason_budget * 10),
+                )
+                u_col1, u_col2, u_col3 = st.columns(3)
+                u_col1.metric(
+                    "Your squad's quality",
+                    f"{uploaded_section['score_pct']:.1f}%",
+                    help="Percentage of the best possible squad for this budget -- the same comparison "
+                    "used for the recommended squad above.",
+                )
+                u_col2.metric("Your squad's cost", f"£{uploaded_section['total_cost'] / 10:.1f}m")
+                u_col3.metric("Players scored", len(unique_ids))
+
+                uploaded_rows_df = pd.DataFrame([_preseason_row(p) for p in uploaded_section["squad"]])
+                st.dataframe(style_fixture_columns(uploaded_rows_df, ticker_gw_labels), hide_index=True, use_container_width=True)
+
+                if uploaded_section["lineup"] is None:
+                    st.caption(
+                        f"Need exactly 2 GK/5 DEF/5 MID/3 FWD (15 total) to work out a starting XI -- "
+                        f"currently {len(unique_ids)} player(s) with a different mix."
+                    )
+                else:
+                    u_lineup = uploaded_section["lineup"]
+                    st.markdown(f"**Your starting XI ({u_lineup['formation']})**")
+                    u_xi_df = pd.DataFrame([_preseason_row(p) for p in u_lineup["starting_xi"]])
+                    st.dataframe(style_fixture_columns(u_xi_df, ticker_gw_labels), hide_index=True, use_container_width=True)
+
+                    st.markdown("**Your bench**")
+                    u_bench_df = pd.DataFrame([_preseason_row(p) for p in u_lineup["bench"]])
+                    st.dataframe(style_fixture_columns(u_bench_df, ticker_gw_labels), hide_index=True, use_container_width=True)
+
+                    u_captain, u_vice = uploaded_section["captain"], uploaded_section["vice"]
+                    u_cap_col, u_vice_col = st.columns(2)
+                    u_cap_col.metric("Your captain", players_by_id[u_captain["player_id"]]["web_name"], f"score {u_captain['score']:.1f}")
+                    u_vice_col.metric("Your vice-captain", players_by_id[u_vice["player_id"]]["web_name"], f"score {u_vice['score']:.1f}")

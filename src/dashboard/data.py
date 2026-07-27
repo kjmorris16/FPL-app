@@ -208,6 +208,33 @@ def load_player_directory() -> dict[int, dict]:
     return {row["id"]: dict(row) for row in rows}
 
 
+def _build_preseason_candidates(conn, horizon_gws: int) -> tuple[list[dict], dict, dict]:
+    """Returns (candidates, players_by_id, teams), or ([], {}, {}) if no
+    previous-season stats have been ingested yet. Shared by the optimizer-
+    driven squad section and the OCR-imported squad section below, so both
+    score against the exact same candidate pool."""
+    scores = preseason_scoring.compute_preseason_scores(conn, start_gw=preseason_constants.START_GW, horizon_gws=horizon_gws)
+    if not scores:
+        return [], {}, {}
+    players_by_id = {row["id"]: dict(row) for row in conn.execute("SELECT * FROM players")}
+    teams = {row["id"]: (row["short_name"] or row["name"]) for row in conn.execute("SELECT id, name, short_name FROM teams")}
+
+    candidates = [
+        {
+            "player_id": pid,
+            "element_type": players_by_id[pid]["element_type"],
+            "team_id": players_by_id[pid]["team_id"],
+            "now_cost": players_by_id[pid]["now_cost"] or 0,
+            "score": info["score"],
+            "confidence": info["confidence"],
+            "notes": info["notes"],
+        }
+        for pid, info in scores.items()
+        if pid in players_by_id
+    ]
+    return candidates, players_by_id, teams
+
+
 @st.cache_data(ttl=CACHE_TTL_SECONDS)
 def load_preseason_section(
     budget_tenths: int = preseason_constants.DEFAULT_BUDGET_TENTHS,
@@ -223,25 +250,9 @@ def load_preseason_section(
     hashable for st.cache_data.
     """
     with connection() as conn:
-        scores = preseason_scoring.compute_preseason_scores(conn, start_gw=preseason_constants.START_GW, horizon_gws=horizon_gws)
-        if not scores:
+        candidates, players_by_id, teams = _build_preseason_candidates(conn, horizon_gws)
+        if not candidates:
             return None
-        players_by_id = {row["id"]: dict(row) for row in conn.execute("SELECT * FROM players")}
-        teams = {row["id"]: (row["short_name"] or row["name"]) for row in conn.execute("SELECT id, name, short_name FROM teams")}
-
-    candidates = [
-        {
-            "player_id": pid,
-            "element_type": players_by_id[pid]["element_type"],
-            "team_id": players_by_id[pid]["team_id"],
-            "now_cost": players_by_id[pid]["now_cost"] or 0,
-            "score": info["score"],
-            "confidence": info["confidence"],
-            "notes": info["notes"],
-        }
-        for pid, info in scores.items()
-        if pid in players_by_id
-    ]
 
     try:
         squad = preseason_optimizer.select_best_squad(
@@ -271,6 +282,58 @@ def load_preseason_section(
         "teams": teams,
         "captain": ranked_xi[0],
         "vice": ranked_xi[1],
+        "total_cost": sum(p["now_cost"] for p in squad),
+        "total_score": round(total_score, 1),
+        "score_pct": preseason_optimizer.score_percentage(total_score, baseline_score),
+        "budget": budget_tenths,
+    }
+
+
+@st.cache_data(ttl=CACHE_TTL_SECONDS)
+def load_uploaded_squad_section(
+    player_ids: tuple = (),
+    budget_tenths: int = preseason_constants.DEFAULT_BUDGET_TENTHS,
+    horizon_gws: int = preseason_constants.FIXTURE_HORIZON_GWS,
+) -> dict | None:
+    """Scores a squad the user provided directly (e.g. imported from a
+    screenshot of their real picks) rather than one the optimizer chose --
+    `player_ids` is taken as-is, not re-optimized, so it can be any size or
+    composition. Squad quality is still measured against the same
+    best-possible-for-this-budget baseline `load_preseason_section` uses.
+    Starting XI/captain/vice are only computed when `player_ids` is a valid
+    15-man squad (2 GK/5 DEF/5 MID/3 FWD); otherwise `lineup` is None.
+
+    None if no previous-season stats have been ingested yet (same as
+    `load_preseason_section`).
+    """
+    with connection() as conn:
+        candidates, players_by_id, teams = _build_preseason_candidates(conn, horizon_gws)
+        if not candidates:
+            return None
+
+    candidates_by_id = {c["player_id"]: c for c in candidates}
+    squad = [candidates_by_id[pid] for pid in player_ids if pid in candidates_by_id]
+
+    baseline_squad = preseason_optimizer.select_best_squad(candidates, budget=budget_tenths)
+    baseline_score = sum(p["score"] for p in baseline_squad)
+    total_score = sum(p["score"] for p in squad)
+
+    composition_counts = {}
+    for p in squad:
+        composition_counts[p["element_type"]] = composition_counts.get(p["element_type"], 0) + 1
+    lineup, captain, vice = None, None, None
+    if composition_counts == preseason_constants.SQUAD_COMPOSITION:
+        lineup = preseason_optimizer.select_starting_xi(squad)
+        ranked_xi = sorted(lineup["starting_xi"], key=lambda p: p["score"], reverse=True)
+        captain, vice = ranked_xi[0], ranked_xi[1]
+
+    return {
+        "squad": squad,
+        "lineup": lineup,
+        "players_by_id": players_by_id,
+        "teams": teams,
+        "captain": captain,
+        "vice": vice,
         "total_cost": sum(p["now_cost"] for p in squad),
         "total_score": round(total_score, 1),
         "score_pct": preseason_optimizer.score_percentage(total_score, baseline_score),
