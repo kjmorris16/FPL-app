@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Mortgage Dashboard</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="page">
+
+  <header class="page-header">
+    <h1>Mortgage Dashboard</h1>
+    <p class="subtitle">A private, local snapshot of your mortgage position and the market around it.</p>
+  </header>
+
+  <section class="card card--headline" id="rate-card">
+    <div class="headline-label">Bank of England Bank Rate</div>
+    <div class="headline-value" id="rate-value">&mdash;</div>
+    <div class="headline-meta">
+      <span id="rate-date">Loading&hellip;</span>
+      <button id="rate-refresh" class="btn btn--ghost-light" type="button">Refresh</button>
+    </div>
+    <div class="headline-status" id="rate-status"></div>
+  </section>
+
+  <div class="grid">
+
+    <section class="card" id="profile-card">
+      <h2>My Mortgage Profile</h2>
+      <form id="profile-form" autocomplete="off">
+
+        <label class="field">
+          <span class="field-label">Current lender</span>
+          <input type="text" id="lender" name="lender" />
+        </label>
+
+        <label class="field">
+          <span class="field-label">Region</span>
+          <select id="region" name="region">
+            <option>England</option>
+            <option>Scotland</option>
+            <option>Wales</option>
+            <option>Northern Ireland</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span class="field-label">Property value (&pound;)</span>
+          <input type="number" id="propertyValue" name="propertyValue" min="0" step="1000" inputmode="numeric" />
+        </label>
+
+        <label class="field">
+          <span class="field-label">Mortgage left to pay (&pound;)</span>
+          <input type="number" id="mortgageLeft" name="mortgageLeft" min="0" step="1000" inputmode="numeric" />
+        </label>
+
+        <label class="field">
+          <span class="field-label">Mortgage term
+            <span class="field-value" id="termValue">36 years</span>
+          </span>
+          <input type="range" id="termYears" name="termYears" min="1" max="40" step="1" />
+        </label>
+
+        <p class="field-hint">Changes save automatically to this browser.</p>
+      </form>
+    </section>
+
+    <section class="card" id="ltv-card">
+      <h2>Loan-to-Value</h2>
+      <div class="ltv-display">
+        <div class="ltv-value" id="ltv-value">&mdash;</div>
+        <div class="ltv-bar">
+          <div class="ltv-bar-fill" id="ltv-bar-fill"></div>
+        </div>
+        <dl class="ltv-breakdown">
+          <div>
+            <dt>Mortgage remaining</dt>
+            <dd id="ltv-mortgage">&pound;0</dd>
+          </div>
+          <div>
+            <dt>Property value</dt>
+            <dd id="ltv-property">&pound;0</dd>
+          </div>
+          <div>
+            <dt>Equity</dt>
+            <dd id="ltv-equity">&pound;0</dd>
+          </div>
+        </dl>
+      </div>
+    </section>
+
+  </div>
+
+  <section class="card" id="rates-card">
+    <div class="card-header-row">
+      <h2>Rate Comparison</h2>
+      <button id="add-row" class="btn btn--outline" type="button">+ Add row</button>
+    </div>
+    <p class="field-hint">Paste in the latest rates you find on comparison sites &mdash; nothing here updates automatically.</p>
+    <div class="table-wrap">
+      <table id="rates-table">
+        <thead>
+          <tr>
+            <th>Mortgage type</th>
+            <th>Interest rate (%)</th>
+            <th>Notes</th>
+            <th aria-label="Remove"></th>
+          </tr>
+        </thead>
+        <tbody id="rates-tbody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer class="page-footer">
+    <p>Base rate data: <a href="https://www.bankofengland.co.uk/boeapps/database/" target="_blank" rel="noopener">Bank of England Statistical Database</a>. All other figures are entered by you and stored only in this browser.</p>
+  </footer>
+
+</div>
+<script src="script.js"></script>
+</body>
+</html>
