@@ -231,3 +231,77 @@ def test_fetch_squad_snapshot_is_idempotent_upsert(db_conn, monkeypatch):
 
     rows = db_conn.execute("SELECT * FROM my_squad_history WHERE manager_id = 1213466 AND gw = 10").fetchall()
     assert len(rows) == 1
+
+
+def _insert_squad_of_players(conn, player_ids, team_id=1, element_type=3, cost=50):
+    conn.execute("INSERT OR IGNORE INTO teams (id, name) VALUES (?, ?)", (team_id, "Home United"))
+    for player_id in player_ids:
+        conn.execute(
+            "INSERT INTO players (id, team_id, element_type, web_name, now_cost) VALUES (?, ?, ?, ?, ?)",
+            (player_id, team_id, element_type, f"Player{player_id}", cost),
+        )
+    conn.commit()
+
+
+def test_save_manual_squad_stores_all_players_in_given_order(db_conn):
+    player_ids = list(range(101, 116))
+    _insert_squad_of_players(db_conn, player_ids)
+
+    manager.save_manual_squad(db_conn, manager_id=1213466, gw=1, player_ids=player_ids, captain_id=101, vice_captain_id=102)
+    db_conn.commit()
+
+    rows = db_conn.execute(
+        "SELECT player_id, squad_position FROM my_squad_history WHERE manager_id = 1213466 AND gw = 1 ORDER BY squad_position"
+    ).fetchall()
+    assert [r["player_id"] for r in rows] == player_ids
+    assert [r["squad_position"] for r in rows] == list(range(1, 16))
+
+
+def test_save_manual_squad_sets_captain_multiplier_to_two(db_conn):
+    player_ids = list(range(101, 116))
+    _insert_squad_of_players(db_conn, player_ids)
+
+    manager.save_manual_squad(db_conn, manager_id=1213466, gw=1, player_ids=player_ids, captain_id=101, vice_captain_id=102)
+    db_conn.commit()
+
+    captain_row = db_conn.execute(
+        "SELECT is_captain, is_vice_captain, multiplier FROM my_squad_history WHERE manager_id = 1213466 AND gw = 1 AND player_id = 101"
+    ).fetchone()
+    assert captain_row["is_captain"] == 1
+    assert captain_row["is_vice_captain"] == 0
+    assert captain_row["multiplier"] == 2
+
+    vice_row = db_conn.execute(
+        "SELECT is_captain, is_vice_captain, multiplier FROM my_squad_history WHERE manager_id = 1213466 AND gw = 1 AND player_id = 102"
+    ).fetchone()
+    assert vice_row["is_captain"] == 0
+    assert vice_row["is_vice_captain"] == 1
+    assert vice_row["multiplier"] == 1
+
+
+def test_save_manual_squad_computes_squad_value_from_current_prices(db_conn):
+    player_ids = list(range(101, 116))
+    _insert_squad_of_players(db_conn, player_ids, cost=50)  # 15 * 50 = 750
+
+    manager.save_manual_squad(db_conn, manager_id=1213466, gw=1, player_ids=player_ids, captain_id=101, vice_captain_id=102)
+    db_conn.commit()
+
+    snapshot_row = db_conn.execute(
+        "SELECT squad_value FROM my_manager_snapshot WHERE manager_id = 1213466 AND gw = 1"
+    ).fetchone()
+    assert snapshot_row["squad_value"] == 750
+
+
+def test_save_manual_squad_replaces_a_prior_manual_squad_entirely(db_conn):
+    first_ids = list(range(101, 116))
+    second_ids = list(range(201, 216))
+    _insert_squad_of_players(db_conn, first_ids)
+    _insert_squad_of_players(db_conn, second_ids)
+
+    manager.save_manual_squad(db_conn, manager_id=1213466, gw=1, player_ids=first_ids, captain_id=101, vice_captain_id=102)
+    manager.save_manual_squad(db_conn, manager_id=1213466, gw=1, player_ids=second_ids, captain_id=201, vice_captain_id=202)
+    db_conn.commit()
+
+    rows = db_conn.execute("SELECT player_id FROM my_squad_history WHERE manager_id = 1213466 AND gw = 1").fetchall()
+    stored_ids = {r["player_id"] for r in rows}
+    assert stored_ids == set(second_ids)

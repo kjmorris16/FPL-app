@@ -50,3 +50,55 @@ def style_fixture_columns(df: pd.DataFrame, gw_labels: list[str]):
     if not columns_present:
         return df
     return df.style.format(precision=1).map(difficulty_cell_style, subset=columns_present)
+
+
+# Approximate primary shirt colour per club, for the My Squad table's "Kit"
+# column -- keyed by the FPL API's 3-letter team short_name. Not official
+# branding hex codes, just close enough to be instantly recognizable; any
+# short_name not listed here (e.g. a newly promoted club not accounted for)
+# falls back to a neutral grey rather than erroring.
+TEAM_COLORS = {
+    "ARS": ("#EF0107", "white"),
+    "AVL": ("#670E36", "white"),
+    "BOU": ("#DA291C", "white"),
+    "BRE": ("#E30613", "white"),
+    "BHA": ("#0057B8", "white"),
+    "BUR": ("#6C1D45", "white"),
+    "CHE": ("#034694", "white"),
+    "CRY": ("#1B458F", "white"),
+    "EVE": ("#003399", "white"),
+    "FUL": ("#000000", "white"),
+    "LEE": ("#FFFFFF", "black"),
+    "LIV": ("#C8102E", "white"),
+    "MCI": ("#6CABDD", "black"),
+    "MUN": ("#DA291C", "white"),
+    "NEW": ("#241F20", "white"),
+    "NFO": ("#DD0000", "white"),
+    "SUN": ("#EB172B", "white"),
+    "TOT": ("#132257", "white"),
+    "WHU": ("#7A263A", "white"),
+    "WOL": ("#FDB913", "black"),
+}
+DEFAULT_TEAM_COLOR = ("#9E9E9E", "white")
+
+
+def team_kit_cell_style(kit_value: str) -> str:
+    """`kit_value` is expected to be "<shirt emoji> <team short_name>" (see
+    `style_kit_column`) -- the team code is pulled from the end of the
+    string so this can style the cell using its own displayed text rather
+    than needing a second, hidden column."""
+    if not kit_value:
+        return ""
+    team_short = kit_value.rsplit(" ", 1)[-1].upper()
+    background, text_color = TEAM_COLORS.get(team_short, DEFAULT_TEAM_COLOR)
+    return f"background-color: {background}; color: {text_color}; text-align: center; font-weight: 600"
+
+
+def style_kit_column(df: pd.DataFrame, kit_column: str = "Kit"):
+    """Colors `kit_column` (if present) per the team code embedded in its
+    own text -- a lightweight stand-in for an actual shirt graphic, since
+    `st.dataframe` cell styling can only color/format text, not render
+    arbitrary shapes."""
+    if kit_column not in df.columns:
+        return df
+    return df.style.format(precision=1).map(team_kit_cell_style, subset=[kit_column])

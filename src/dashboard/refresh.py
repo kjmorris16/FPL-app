@@ -66,6 +66,23 @@ def refresh_all(manager_id: int = DEFAULT_MANAGER_ID, league_id: int = DEFAULT_L
     return messages
 
 
+def save_manual_squad(manager_id: int, gw: int, player_ids: list[int], captain_id: int, vice_captain_id: int) -> list[str]:
+    """Records a manually-entered squad (pre-season, when the FPL API has no
+    real picks yet) the same way a live snapshot would be stored, so every
+    other tab that reads the squad tables just works without caring how the
+    data got there. Returns status messages in the same style as the other
+    refresh functions, for the same session_state display pattern."""
+    try:
+        with connection() as conn:
+            manager_ingest.save_manual_squad(conn, manager_id, gw, player_ids, captain_id, vice_captain_id)
+        messages = ["✅ Squad saved."]
+    except Exception as exc:
+        messages = [f"⚠️ Could not save squad: {exc}"]
+
+    st.cache_data.clear()
+    return messages
+
+
 def refresh_previous_season_stats() -> list[str]:
     """Pulls last season's per-player totals (Phase 8's pre-season selector
     input). Separate from `refresh_all` on purpose: this is one API call per

@@ -19,7 +19,9 @@ import streamlit as st
 from src.chips import constants as chip_constants
 from src.config import DEFAULT_LEAGUE_ID, DEFAULT_MANAGER_ID
 from src.dashboard import data as dash_data
+from src.dashboard import manual_squad
 from src.dashboard import refresh as dash_refresh
+from src.dashboard.styling import style_kit_column
 from src.db import init_db
 
 # A fresh deploy (or a first local run) has no data/fpl.db at all -- data/ is
@@ -100,6 +102,68 @@ with tab_squad:
     squad_section = dash_data.load_squad_section(manager_id)
     if squad_section is None:
         st.info("No squad snapshot yet. Click **Refresh data** in the sidebar to pull your squad from the FPL API.")
+        st.caption(
+            "Before the season starts (or before you've saved a squad for the next gameweek), the FPL API "
+            "has no picks to pull yet -- enter your squad manually below instead. It'll be replaced "
+            "automatically the next time a real snapshot can be fetched."
+        )
+
+        player_directory = dash_data.load_player_directory()
+        if not player_directory:
+            st.caption("Run the sidebar's **Refresh data** at least once first, so there's a player list to pick from.")
+        else:
+            label_by_id = {
+                pid: f"{info['web_name']} ({POSITION_NAMES.get(info['element_type'], '?')}, {info['team_name'] or '?'}) #{pid}"
+                for pid, info in player_directory.items()
+            }
+            id_by_label = {label: pid for pid, label in label_by_id.items()}
+            sorted_labels = sorted(id_by_label, key=lambda label: player_directory[id_by_label[label]]["web_name"])
+
+            with st.expander("✏️ Manually enter your squad", expanded=True):
+                default_rows = []
+                for name, expected_type, role in manual_squad.SUGGESTED_SQUAD_HINTS:
+                    matched_id = manual_squad.match_name_to_player(name, player_directory, expected_type)
+                    default_rows.append({"Player": label_by_id.get(matched_id, sorted_labels[0]), "Role": role})
+
+                st.caption(
+                    "Pre-filled from the squad you shared earlier -- double-check every row (an ambiguous "
+                    "surname like a shared one can match the wrong player), then adjust as needed. Mark "
+                    "exactly one player \"C\" and one \"VC\" in the Role column."
+                )
+                edited_manual_df = st.data_editor(
+                    pd.DataFrame(default_rows),
+                    column_config={
+                        "Player": st.column_config.SelectboxColumn("Player", options=sorted_labels, required=True),
+                        "Role": st.column_config.SelectboxColumn("Role", options=["", "C", "VC"]),
+                    },
+                    num_rows="dynamic",
+                    hide_index=True,
+                    use_container_width=True,
+                    key="manual_squad_editor",
+                )
+
+                if st.button("💾 Save my squad"):
+                    manual_rows = edited_manual_df.to_dict("records")
+                    manual_player_ids = [id_by_label[r["Player"]] for r in manual_rows if r.get("Player") in id_by_label]
+                    captain_ids = [id_by_label[r["Player"]] for r in manual_rows if r.get("Role") == "C" and r.get("Player") in id_by_label]
+                    vice_ids = [id_by_label[r["Player"]] for r in manual_rows if r.get("Role") == "VC" and r.get("Player") in id_by_label]
+
+                    if len(manual_player_ids) != 15 or len(set(manual_player_ids)) != 15:
+                        st.error(f"Need exactly 15 unique players -- currently {len(set(manual_player_ids))} unique across {len(manual_player_ids)} row(s).")
+                    elif len(captain_ids) != 1:
+                        st.error("Mark exactly one player's Role as \"C\" (captain).")
+                    elif len(vice_ids) != 1:
+                        st.error("Mark exactly one player's Role as \"VC\" (vice-captain).")
+                    elif captain_ids[0] == vice_ids[0]:
+                        st.error("Captain and vice-captain must be different players.")
+                    else:
+                        save_gw = current_gw or 1
+                        st.session_state["refresh_messages"] = dash_refresh.save_manual_squad(
+                            manager_id, save_gw, manual_player_ids, captain_ids[0], vice_ids[0],
+                        )
+                        if "manual_squad_editor" in st.session_state:
+                            del st.session_state["manual_squad_editor"]
+                        st.rerun()
     else:
         snapshot = squad_section["snapshot"] or {}
         col1, col2, col3 = st.columns(3)
@@ -115,6 +179,7 @@ with tab_squad:
                     "Player": p["web_name"],
                     "Pos": POSITION_NAMES.get(p["element_type"], "?"),
                     "Team": p["team_short"],
+                    "Kit": f"👕 {p['team_short']}",
                     "Role": role,
                     "Price": f"£{(p['now_cost'] or 0) / 10:.1f}m",
                     f"GW{squad_section['gw']} Proj": round(p["projected_points_gw"], 1),
@@ -122,7 +187,7 @@ with tab_squad:
                 }
             )
         st.dataframe(
-            pd.DataFrame(rows),
+            style_kit_column(pd.DataFrame(rows)),
             column_config={"Recent form": st.column_config.BarChartColumn("Recent form (last 6 GWs)", y_min=0)},
             hide_index=True,
             use_container_width=True,

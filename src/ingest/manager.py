@@ -191,3 +191,61 @@ def fetch_squad_snapshot(conn, manager_id: int, gw: int | None = None) -> dict:
         "free_transfers": free_transfers,
         "squad": squad,
     }
+
+
+def save_manual_squad(
+    conn,
+    manager_id: int,
+    gw: int,
+    player_ids: list[int],
+    captain_id: int,
+    vice_captain_id: int,
+    bank: int = 0,
+    free_transfers: int = STARTING_FREE_TRANSFERS,
+) -> None:
+    """Manually records a squad snapshot in the exact same tables/shape
+    `fetch_squad_snapshot` would, for when the live API has no picks to pull
+    yet (pre-season, before GW1's deadline). Every other tab that reads
+    `my_squad_history`/`my_manager_snapshot` doesn't need to know or care how
+    the data got there.
+
+    Uses each player's current price for both purchase and sell price --
+    there's no real transfer history to reconstruct an actual purchase price
+    from, so this assumes zero banked profit (the same conservative fallback
+    `fetch_squad_snapshot` uses for a player who's never been transferred).
+    `player_ids` order becomes `squad_position` (1-15); a full replace of
+    any prior snapshot for this (manager_id, gw), not a merge, so re-saving
+    with a different 15 doesn't leave stale rows behind.
+    """
+    now_costs = {row["id"]: row["now_cost"] or 0 for row in conn.execute("SELECT id, now_cost FROM players")}
+    squad_value = sum(now_costs.get(pid, 0) for pid in player_ids)
+    pulled_at = datetime.now(timezone.utc).isoformat()
+
+    conn.execute("DELETE FROM my_squad_history WHERE manager_id = ? AND gw = ?", (manager_id, gw))
+    conn.execute(
+        """
+        INSERT INTO my_manager_snapshot (manager_id, gw, bank, squad_value, free_transfers, pulled_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(manager_id, gw) DO UPDATE SET
+            bank=excluded.bank, squad_value=excluded.squad_value,
+            free_transfers=excluded.free_transfers, pulled_at=excluded.pulled_at
+        """,
+        (manager_id, gw, bank, squad_value, free_transfers, pulled_at),
+    )
+    conn.executemany(
+        """
+        INSERT INTO my_squad_history (
+            manager_id, gw, player_id, squad_position, is_captain, is_vice_captain,
+            multiplier, purchase_price, sell_price, pulled_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                manager_id, gw, player_id, position, int(player_id == captain_id), int(player_id == vice_captain_id),
+                2 if player_id == captain_id else 1, now_costs.get(player_id, 0), now_costs.get(player_id, 0), pulled_at,
+            )
+            for position, player_id in enumerate(player_ids, start=1)
+        ],
+    )
+
+    logger.info("Stored manual squad snapshot for manager %d, GW%d: %d players", manager_id, gw, len(player_ids))

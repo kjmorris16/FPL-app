@@ -404,8 +404,9 @@ lines.
 Four tabs, each backed by the exact same modules the CLIs use (no logic
 duplicated for the dashboard):
 - **My Squad** -- bank/free transfers/squad value as metrics, and the 15-man
-  squad as a table (position, team, price, next-GW projection, C/VC tags,
-  and a per-player recent-form bar chart via `st.column_config.BarChartColumn`).
+  squad as a table (position, team, a colored "Kit" swatch per team, price,
+  next-GW projection, C/VC tags, and a per-player recent-form bar chart via
+  `st.column_config.BarChartColumn`).
 - **Transfer Recommendation** -- Phase 3's top combo (in/out, 1/3/5 GW gain,
   hit cost if any, remaining bank), its plain-English rationale, the
   resulting captain/vice-captain pick, and the next few alternatives.
@@ -436,6 +437,40 @@ so a naive `st.write(message)` before the rerun would never actually be
 visible. The status messages are stashed in `st.session_state` and rendered
 on the *next* run instead -- covered by
 `tests/test_dashboard_app.py::test_refresh_button_status_messages_survive_the_rerun`.
+
+**Manually entering your squad** (`src/dashboard/manual_squad.py`,
+`src/ingest/manager.py:save_manual_squad`): before the season starts, the
+FPL API has no saved picks to pull at all -- `fetch_squad_snapshot` needs an
+actual picks record, which doesn't exist until GW1's deadline passes -- so
+the My Squad tab falls back to a "Manually enter your squad" editor whenever
+no snapshot could be loaded. It's the same dropdown-editable-table pattern
+used elsewhere in this app (`st.column_config.SelectboxColumn`, so every row
+is a real player, never free text), plus a "Role" column to mark exactly one
+Captain and one Vice-Captain. Saving writes into `my_squad_history`/
+`my_manager_snapshot` in the exact same shape a live API pull would, using
+each player's current price for both purchase and sell price (no real
+transfer history to reconstruct a purchase price from) -- so every other tab
+that reads those tables works unmodified, and it's fully overwritten the
+next time a real snapshot can be fetched.
+
+The table starts pre-filled with `SUGGESTED_SQUAD_HINTS` -- fuzzy-matched
+(`difflib.SequenceMatcher`) against the real player list the same way the
+former OCR importer worked, but from a small hardcoded name list rather than
+image text. When a name is ambiguous (two different players sharing a
+surname), the match prefers whichever candidate's position matches what
+that squad slot expects -- e.g. two players both named "Palmer" resolves
+correctly to the goalkeeper for a bench-GK row and the midfielder for a
+starting-XI row. Verified with a synthetic case that deliberately includes
+both.
+
+**Kit column** (`src/dashboard/styling.py:style_kit_column`): a colored
+swatch per player's team on the My Squad table, in the same pandas-Styler
+style as the fixture-difficulty colors elsewhere in the app --
+`st.dataframe` can only color/format cell text, not render an actual shirt
+graphic, so this is a shirt emoji on a background colored to each club's
+approximate primary color (`TEAM_COLORS`, not official hex codes, just
+close enough to read at a glance), with a neutral grey fallback for any
+club not in that mapping.
 
 **Verification**: an `AppTest`-based test (`tests/test_dashboard_app.py`)
 confirms the app renders without raising against an empty database, with

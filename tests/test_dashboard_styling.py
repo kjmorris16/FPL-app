@@ -82,3 +82,43 @@ def test_style_fixture_columns_keeps_float_columns_at_one_decimal():
     html = styler.to_html()
     assert "10.4" in html
     assert "10.400000" not in html
+
+
+def test_team_kit_cell_style_known_team_uses_its_colors():
+    style = styling.team_kit_cell_style("👕 ARS")
+    assert "#EF0107" in style
+    assert "white" in style
+
+
+def test_team_kit_cell_style_is_case_insensitive():
+    style = styling.team_kit_cell_style("👕 ars")
+    assert "#EF0107" in style
+
+
+def test_team_kit_cell_style_unknown_team_falls_back_to_default():
+    style = styling.team_kit_cell_style("👕 ZZZ")
+    assert styling.DEFAULT_TEAM_COLOR[0] in style
+
+
+def test_team_kit_cell_style_blank_value_has_no_style():
+    assert styling.team_kit_cell_style("") == ""
+
+
+def test_style_kit_column_returns_styler_when_column_present():
+    df = pd.DataFrame({"Player": ["A"], "Kit": ["👕 ARS"]})
+    result = styling.style_kit_column(df)
+    assert isinstance(result, pd.io.formats.style.Styler)
+
+
+def test_style_kit_column_returns_plain_df_when_no_kit_column():
+    df = pd.DataFrame({"Player": ["A"]})
+    result = styling.style_kit_column(df)
+    assert result is df
+
+
+def test_style_kit_column_applies_correct_colors_to_rendered_html():
+    df = pd.DataFrame({"Player": ["A", "B"], "Kit": ["👕 ARS", "👕 CHE"]})
+    styler = styling.style_kit_column(df)
+    html = styler.to_html()
+    assert "#EF0107" in html
+    assert "#034694" in html
