@@ -390,15 +390,16 @@ of the file -- Streamlit otherwise runs scripts with only their own
 directory on the path, which breaks `import src...` regardless of your
 working directory when you launch it.)
 
-On a narrow screen the five tabs don't all fit in one row, so Streamlit
-makes the tab bar horizontally scrollable -- but its decorative grey
-underline is only ever as wide as the visible row, not the full scrollable
-content, so scrolling to a later tab left a visible gap between where the
-grey line stopped and the active tab's own colored underline further
-right. A small `st.markdown(..., unsafe_allow_html=True)` block forces the
-tab bar to wrap onto a second line instead of scrolling, which removes that
-internal overflow entirely -- the underline then always spans exactly what's
-actually rendered, on both lines.
+On a narrow screen, if there are ever more tabs than fit in one row,
+Streamlit makes the tab bar horizontally scrollable -- but its decorative
+grey underline is only ever as wide as the visible row, not the full
+scrollable content, so scrolling to a later tab leaves a visible gap
+between where the grey line stops and the active tab's own colored
+underline further right. A small `st.markdown(..., unsafe_allow_html=True)`
+block forces the tab bar to wrap onto a second line instead of scrolling
+whenever that happens, which removes that internal overflow entirely -- the
+underline then always spans exactly what's actually rendered, on both
+lines.
 
 Four tabs, each backed by the exact same modules the CLIs use (no logic
 duplicated for the dashboard):
@@ -424,10 +425,9 @@ rankings on every click; refreshing explicitly clears that cache afterwards.
 Besides the sidebar's manual "Refresh data" button, this now also runs
 automatically the first time the app loads a session with no squad snapshot
 yet for the configured manager -- guarded by a `session_state` flag so it
-only ever attempts once per session, the same pattern the Pre-Season tab's
-auto-fetch below uses. A fresh deploy (or a just-woken free-tier app) shows
-real data on first view instead of every tab's "no data yet" message until
-someone thinks to click Refresh.
+only ever attempts once per session. A fresh deploy (or a just-woken
+free-tier app) shows real data on first view instead of every tab's "no
+data yet" message until someone thinks to click Refresh.
 
 Read-heavy `st.cache_data` functions are the norm here, but one non-obvious
 Streamlit behavior was worth catching before shipping: `st.rerun()` right
@@ -457,6 +457,16 @@ sent alongside this summary. Not yet checked against your real squad and
 league, for the same network reason as every phase before it.
 
 ## Phase 8 — Pre-season squad selector
+
+**Status: removed from the dashboard UI, but the backend still works.** The
+"Pre-Season Squad" tab described below was taken off the dashboard by
+request; `src/preseason/*` (scoring, optimizer, OCR import), its data-access
+layer, and its `st.cache_data` loaders in `src/dashboard/data.py` are all
+still in place and fully tested (`pytest tests/test_preseason_*.py`) --
+only `src/dashboard/app.py`'s tab was removed. `python -m src.preseason.cli`
+still works as a standalone command. Re-adding the tab is a matter of
+restoring the `with tab_preseason:` block and its `st.tabs(...)` entry;
+everything it called still exists.
 
 Live squad/picks data isn't available until GW1's deadline passes, so this
 fills that gap: a full-squad recommendation built from last season's data
@@ -541,10 +551,11 @@ python -m src.preseason.cli                    # suggested 15 + starting XI
 python -m src.preseason.cli --budget 98.5 --horizon 3
 ```
 
-The dashboard's fifth tab ("Pre-Season Squad") shows the same thing with a
-clear banner: *"Based on last season's data and pre-season signal -- treat
-as a starting point, not a certainty, until live data arrives after GW1."*
-Squad grouped by position (price, score, confidence, next-3-gameweek
+The dashboard used to show the same thing in a "Pre-Season Squad" tab, with
+a clear banner: *"Based on last season's data and pre-season signal --
+treat as a starting point, not a certainty, until live data arrives after
+GW1."* (see the "Status" note at the top of this section for why it's CLI-
+only for now). Squad grouped by position (price, score, confidence, next-3-gameweek
 fixture difficulty per team, notes), a squad quality metric above the
 table, starting XI + formation, bench, and captain/vice. Fixture difficulty
 (`src/preseason/data_access.py:get_team_fixture_ticker`) reuses the same
@@ -675,4 +686,4 @@ pytest
 - [x] Phase 5 — Differential finder (mini-league-relative ownership)
 - [x] Phase 6 — Streamlit dashboard
 - [ ] Phase 7 — Community sentiment cross-check (YouTube transcript ingestion)
-- [x] Phase 8 — Pre-season squad selector
+- [x] Phase 8 — Pre-season squad selector (backend + CLI; dashboard tab removed, see Phase 8 section)
