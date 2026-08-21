@@ -211,12 +211,36 @@ they're reconstructed:
 
 ### Captain and rationale
 
-The captain/vice-captain recommendation (`src/transfers/captain.py`) is
-simply the two highest single-gameweek projected-points players in the
-*resulting* squad (after the top transfer combo). The rationale
-(`src/transfers/rationale.py`) is templated, not LLM-generated -- it's built
-directly from the same gain and fixture-difficulty numbers the optimizer
-already computed, which keeps it reproducible and testable.
+The captain/vice-captain recommendation (`src/transfers/captain.py`) is the
+two highest single-gameweek projected-points players in the squad you
+actually own right now. That single-gameweek projection is itself already a
+composite of recent form (a 6-gameweek window blended 60/40 against the
+season-long rate, `RECENT_FORM_WEIGHT`), each position's scoring model
+(goals/assists/clean sheets/bonus/appearance points), and this gameweek's
+fixture difficulty (a +/-20% swing per rating point,
+`FIXTURE_DIFFICULTY_SLOPE`) -- so picking the single highest number already
+accounts for all three, even though "highest projection" doesn't spell that
+out on its own. A one-line rationale
+(`rationale.build_captain_rationale`) names those factors explicitly next to
+the pick, rather than leaving the number to speak for itself.
+
+**Bug fixed: captain/vice used to come from the wrong squad.** Both the
+dashboard and the CLI used to pick the captain from the squad you'd have
+*after* making the top recommended transfer, not the squad you actually
+own -- so in a week where a transfer was recommended, the suggested captain
+could be a player you hadn't transferred in yet, which isn't something you
+can act on. Reproduced directly: a squad whose actual best captain
+projected 9.0 pts, alongside a suggested (but not yet made) transfer target
+projecting 9.5, had the tool recommend captaining the not-yet-owned
+transfer target instead of the real best option already on the team.
+Fixed in both `src/dashboard/data.py:load_transfer_recommendation` and
+`src/transfers/cli.py` to pick from the currently-owned squad, covered by
+`tests/test_dashboard_data.py`.
+
+The rationale (`src/transfers/rationale.py`) is templated, not
+LLM-generated -- it's built directly from the same gain and
+fixture-difficulty numbers the optimizer already computed, which keeps it
+reproducible and testable.
 
 ### Weekly routine
 

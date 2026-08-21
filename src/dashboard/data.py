@@ -94,13 +94,31 @@ def load_transfer_recommendation(manager_id: int) -> dict | None:
         rationale_text = rationale.build_rationale(top_combo, fixture_context)
 
         squad_ids = {p["player_id"] for p in squad}
-        out_ids = {s.out_player["player_id"] for s in top_combo.swaps}
-        in_ids = {s.in_player["player_id"] for s in top_combo.swaps}
-        resulting_squad_ids = (squad_ids - out_ids) | in_ids
-        single_gw_projections = {pid: proj_totals.get(pid, {}).get(1, 0.0) for pid in resulting_squad_ids}
         players_by_id = {p["player_id"]: p for p in squad}
         players_by_id.update({p["player_id"]: p for p in candidate_pool})
-        cap_id, vice_id = transfer_captain.recommend_captain(list(resulting_squad_ids), single_gw_projections)
+
+        # Captain/vice must come from the squad you actually own *right now*,
+        # not the squad you'd have if you also made the transfer above --
+        # recommending a captain you haven't transferred in yet is nonsense
+        # you can't act on.
+        single_gw_projections = {pid: proj_totals.get(pid, {}).get(1, 0.0) for pid in squad_ids}
+        cap_id, vice_id = transfer_captain.recommend_captain(list(squad_ids), single_gw_projections)
+
+        def _captain_rationale(player_id):
+            if player_id is None:
+                return None
+            team_id = players_by_id.get(player_id, {}).get("team_id")
+            fixture_difficulty = (
+                transfers_data_access.get_average_fixture_difficulty(conn, team_id, gw, 1) if team_id else None
+            )
+            return rationale.build_captain_rationale(
+                players_by_id.get(player_id, {}).get("web_name", f"#{player_id}"),
+                single_gw_projections.get(player_id, 0.0),
+                fixture_difficulty,
+            )
+
+        captain_rationale_text = _captain_rationale(cap_id)
+        vice_captain_rationale_text = _captain_rationale(vice_id)
 
     return {
         "gw": gw,
@@ -111,8 +129,10 @@ def load_transfer_recommendation(manager_id: int) -> dict | None:
         "rationale": rationale_text,
         "captain": players_by_id.get(cap_id, {}).get("web_name") if cap_id else None,
         "captain_points": single_gw_projections.get(cap_id) if cap_id else None,
+        "captain_rationale": captain_rationale_text,
         "vice_captain": players_by_id.get(vice_id, {}).get("web_name") if vice_id else None,
         "vice_captain_points": single_gw_projections.get(vice_id) if vice_id else None,
+        "vice_captain_rationale": vice_captain_rationale_text,
     }
 
 

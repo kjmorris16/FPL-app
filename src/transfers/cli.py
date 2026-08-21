@@ -93,22 +93,28 @@ def run(
         }
         print(f"\nWhy: {rationale.build_rationale(top_combo, fixture_context)}")
 
+        # Captain/vice must come from the squad actually owned right now, not
+        # the squad you'd have if you also made the transfer above --
+        # recommending a captain you haven't transferred in yet isn't
+        # something you can act on.
         squad_ids = {p["player_id"] for p in squad}
-        out_ids = {swap.out_player["player_id"] for swap in top_combo.swaps}
-        in_ids = {swap.in_player["player_id"] for swap in top_combo.swaps}
-        resulting_squad_ids = (squad_ids - out_ids) | in_ids
-
-        single_gw_projections = {pid: proj_totals.get(pid, {}).get(1, 0.0) for pid in resulting_squad_ids}
+        single_gw_projections = {pid: proj_totals.get(pid, {}).get(1, 0.0) for pid in squad_ids}
         players_by_id = {p["player_id"]: p for p in squad}
         players_by_id.update({p["player_id"]: p for p in candidate_pool})
 
-        cap_id, vice_id = captain.recommend_captain(list(resulting_squad_ids), single_gw_projections)
+        cap_id, vice_id = captain.recommend_captain(list(squad_ids), single_gw_projections)
         if cap_id is not None:
             cap_name = players_by_id.get(cap_id, {}).get("web_name", f"#{cap_id}")
+            cap_team_id = players_by_id.get(cap_id, {}).get("team_id")
+            cap_fixture_diff = data_access.get_average_fixture_difficulty(conn, cap_team_id, gw, 1) if cap_team_id else None
             print(f"\nCaptain: {cap_name} ({single_gw_projections[cap_id]:.1f} pts projected GW{gw})")
+            print(f"    {rationale.build_captain_rationale(cap_name, single_gw_projections[cap_id], cap_fixture_diff)}")
         if vice_id is not None:
             vice_name = players_by_id.get(vice_id, {}).get("web_name", f"#{vice_id}")
+            vice_team_id = players_by_id.get(vice_id, {}).get("team_id")
+            vice_fixture_diff = data_access.get_average_fixture_difficulty(conn, vice_team_id, gw, 1) if vice_team_id else None
             print(f"Vice-captain: {vice_name} ({single_gw_projections[vice_id]:.1f} pts projected GW{gw})")
+            print(f"    {rationale.build_captain_rationale(vice_name, single_gw_projections[vice_id], vice_fixture_diff)}")
 
 
 def main() -> None:

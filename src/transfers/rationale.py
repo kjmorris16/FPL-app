@@ -6,7 +6,7 @@ and directly traceable to the numbers behind it.
 from src.transfers import constants as c
 
 
-def _describe_fixture_run(avg_difficulty: float | None) -> str | None:
+def describe_fixture_run(avg_difficulty: float | None) -> str | None:
     if avg_difficulty is None:
         return None
     if avg_difficulty <= 2.4:
@@ -29,7 +29,7 @@ def build_rationale(combo, fixture_context: dict[int, float]) -> str:
         gain = swap.gains[horizon]
         out_name = swap.out_player["web_name"]
         in_name = swap.in_player["web_name"]
-        fixture_desc = _describe_fixture_run(fixture_context.get(swap.in_player["player_id"]))
+        fixture_desc = describe_fixture_run(fixture_context.get(swap.in_player["player_id"]))
 
         sentence = f"{in_name} projects {gain:+.1f} more points than {out_name} over the next {horizon} GWs"
         if fixture_desc:
@@ -42,3 +42,18 @@ def build_rationale(combo, fixture_context: dict[int, float]) -> str:
             f"over {horizon} GWs clears that comfortably (net {combo.net_gains[horizon]:+.1f})."
         )
     return " ".join(sentences)
+
+
+def build_captain_rationale(player_name: str, projected_points: float, fixture_difficulty: float | None) -> str:
+    """One-line reasoning for a captain/vice-captain pick. `projected_points`
+    is the single-gameweek projection driving the pick -- it already blends
+    each player's recent-form and season-long per-90 rates with this week's
+    fixture difficulty and their position's scoring model (see
+    `scoring.projections`), so this rationale names those factors rather
+    than re-deriving them.
+    """
+    sentence = f"Highest projected points in your current squad this gameweek ({projected_points:.1f}), already weighing recent form and scoring potential"
+    fixture_desc = describe_fixture_run(fixture_difficulty)
+    if fixture_desc:
+        sentence += f" against {fixture_desc}"
+    return sentence + "."

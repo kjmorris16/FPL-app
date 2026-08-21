@@ -47,7 +47,20 @@ def test_build_rationale_mentions_hit_cost_when_applicable():
 
 
 def test_describe_fixture_run_buckets():
-    assert "favourable" in rationale._describe_fixture_run(2.0)
-    assert "middling" in rationale._describe_fixture_run(3.0)
-    assert "tough" in rationale._describe_fixture_run(4.5)
-    assert rationale._describe_fixture_run(None) is None
+    assert "favourable" in rationale.describe_fixture_run(2.0)
+    assert "middling" in rationale.describe_fixture_run(3.0)
+    assert "tough" in rationale.describe_fixture_run(4.5)
+    assert rationale.describe_fixture_run(None) is None
+
+
+def test_build_captain_rationale_mentions_points_and_fixture():
+    text = rationale.build_captain_rationale("Salah", 9.2, fixture_difficulty=2.0)
+    assert "9.2" in text
+    assert "favourable" in text
+    assert "form" in text.lower()
+
+
+def test_build_captain_rationale_handles_no_fixture_difficulty():
+    text = rationale.build_captain_rationale("Salah", 9.2, fixture_difficulty=None)
+    assert "9.2" in text
+    assert text.endswith(".")

@@ -219,8 +219,12 @@ with tab_transfers:
         if rec["captain"]:
             cap_col, vice_col = st.columns(2)
             cap_col.metric("Captain", rec["captain"], f"{rec['captain_points']:.1f} pts" if rec["captain_points"] else None)
+            if rec.get("captain_rationale"):
+                cap_col.caption(rec["captain_rationale"])
             if rec["vice_captain"]:
                 vice_col.metric("Vice-captain", rec["vice_captain"], f"{rec['vice_captain_points']:.1f} pts" if rec["vice_captain_points"] else None)
+                if rec.get("vice_captain_rationale"):
+                    vice_col.caption(rec["vice_captain_rationale"])
 
         if rec["alternatives"]:
             st.markdown("**Other options considered:**")
