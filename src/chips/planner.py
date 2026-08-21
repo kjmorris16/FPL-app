@@ -53,6 +53,19 @@ def build_calendar(conn, manager_id: int, start_gw: int, end_gw: int, squad_gw: 
     return calendar
 
 
+def _tie_break_key(chip_name: str, entry: dict, key: str):
+    """Wildcard ties (e.g. several gameweeks all seeing the same upcoming
+    double gameweek within their lookahead window) prefer the *later*
+    gameweek -- rebuilding as close as possible to the swing means less time
+    with a squad that isn't yet benefiting from it, and more up-to-date team
+    news when you do. Every other chip's ties prefer the *earlier* gameweek
+    instead, since their values are a rougher guess the further out they are
+    (see the module docstring in valuation.py) -- among equally-good weeks,
+    the nearer one is the more trustworthy number.
+    """
+    return (entry[key], entry["gw"] if chip_name == c.CHIP_WILDCARD else -entry["gw"])
+
+
 def top_recommendation(calendar: list[dict], chip_name: str, available_chips: dict[str, bool]) -> dict | None:
     """Best single gameweek for `chip_name`, or None if it's unavailable or
     the calendar has no signal for it."""
@@ -62,13 +75,13 @@ def top_recommendation(calendar: list[dict], chip_name: str, available_chips: di
     candidates = [entry for entry in calendar if entry.get(key) is not None]
     if not candidates:
         return None
-    return max(candidates, key=lambda entry: entry[key])
+    return max(candidates, key=lambda entry: _tie_break_key(chip_name, entry, key))
 
 
 def top_n_gameweeks(calendar: list[dict], chip_name: str, n: int = 3) -> list[dict]:
     key = _VALUE_KEY_BY_CHIP[chip_name]
     candidates = [entry for entry in calendar if entry.get(key) is not None]
-    return sorted(candidates, key=lambda entry: entry[key], reverse=True)[:n]
+    return sorted(candidates, key=lambda entry: _tie_break_key(chip_name, entry, key), reverse=True)[:n]
 
 
 def describe_recommendation(chip_name: str, entry: dict, teams: dict[int, str] | None = None, players_by_id: dict[int, dict] | None = None) -> str:

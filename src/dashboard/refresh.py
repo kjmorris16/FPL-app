@@ -9,6 +9,7 @@ import logging
 
 import streamlit as st
 
+from src.chips import constants as chip_constants
 from src.config import DEFAULT_LEAGUE_ID, DEFAULT_MANAGER_ID
 from src.db import connection
 from src.differentials import ingestion as differentials_ingestion
@@ -16,6 +17,7 @@ from src.ingest import manager as manager_ingest
 from src.ingest import previous_season as previous_season_ingest
 from src.ingest import refresh as ingest_refresh
 from src.scoring import data_access as scoring_data_access, projections as scoring_projections
+from src.transfers import constants as transfer_constants
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +36,15 @@ def refresh_all(manager_id: int = DEFAULT_MANAGER_ID, league_id: int = DEFAULT_L
     try:
         with connection() as conn:
             current_gw = scoring_data_access.get_current_gw(conn)
-            rows = scoring_projections.compute_projections(conn, start_gw=current_gw, horizon_gws=5)
+            # Must cover at least the chip planner's full PLANNING_HORIZON_GWS
+            # window (10 GWs), not just the transfer optimizer's shorter
+            # ranking horizon (5 GWs) -- otherwise Bench Boost/Triple Captain
+            # silently show 0.0 for any gameweek past whichever is smaller,
+            # even a double gameweek that's correctly flagged in the
+            # calendar's own notes, making the "best week" recommendation
+            # blind to real opportunities beyond that point.
+            horizon_gws = max(transfer_constants.DEFAULT_RANKING_HORIZON_GWS, chip_constants.PLANNING_HORIZON_GWS)
+            rows = scoring_projections.compute_projections(conn, start_gw=current_gw, horizon_gws=horizon_gws)
             scoring_data_access.upsert_projections(conn, rows)
         messages.append("✅ Player projections recomputed.")
     except Exception as exc:

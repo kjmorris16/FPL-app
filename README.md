@@ -283,6 +283,34 @@ holds at the target gameweek -- a real squad will likely change via future
 transfers, so values further out in the calendar are a rough guide, most
 reliable near-term. Re-run closer to the target week for accuracy.
 
+**Bug fixed: the planning window used to outrun the data it needed.** The
+chip calendar plans `PLANNING_HORIZON_GWS` (10) gameweeks ahead, but the
+sidebar's Refresh only ever computed player projections 5 gameweeks ahead
+(mirroring the transfer optimizer's shorter ranking horizon) -- so Bench
+Boost/Triple Captain silently showed 0.0 for gameweeks 6-10, even one the
+calendar's own notes correctly flagged as a double gameweek. A double
+gameweek is very often more than 5 weeks out from whenever you last hit
+Refresh, so in practice the "best week" recommendation would land on
+whatever was largest among an incomplete, arbitrarily-truncated first half
+of the window -- not the real DGW/BGW opportunity. Fixed in
+`src/dashboard/refresh.py`: the projection horizon computed on refresh is
+now `max(transfer ranking horizon, chip PLANNING_HORIZON_GWS)`, so every
+gameweek the calendar plans over actually has real data. (The season-long
+"Season calendar" chart Phase 6's dashboard shows makes this failure mode
+easy to spot at a glance -- a real DGW spike with zero value plotted under
+it is a dead giveaway that the data didn't reach that far.)
+
+**Wildcard ties now prefer the later gameweek.** Several consecutive weeks
+often score identically for Wildcard (they all see the same upcoming DGW
+within `WILDCARD_DGW_LOOKAHEAD_GWS`) -- previously the tie-break (a bare
+`max()`/`sorted()`) silently picked the *earliest* of them, which wastes
+time on a rebuilt squad that isn't benefiting from the swing yet and locks
+in transfers before late team news. Wildcard ties now prefer the *latest*
+tied gameweek instead (`src/chips/planner.py:_tie_break_key`); every other
+chip keeps preferring the *earliest* tied gameweek, since their values are
+a rougher guess the further out they are, so the nearer, more-trustworthy
+number wins there instead.
+
 ### Output
 
 ```bash
@@ -293,12 +321,14 @@ python -m src.chips.cli --full-calendar    # also print every GW's DGW/BGW notes
 
 Recalculates from scratch each run (refetches chip usage, rescans the
 current fixture list), so postponements or rescheduled DGWs are picked up
-automatically next time it's run. Verified end-to-end against a synthetic
-season with a planted DGW, a run of easy fixtures, and a blank gameweek: the
-planner correctly picked the DGW week as the top Bench Boost/Triple Captain
-window and the blank week as the top Free Hit window. Not yet run against
-the real season's fixture list, for the same network reason as the phases
-above.
+automatically next time it's run. Re-verified end-to-end after the horizon
+fix above, specifically with the planted DGW placed *beyond* the old 5-GW
+blind spot (GW9 of a 10-GW window): Bench Boost and Triple Captain both
+correctly pick that DGW, Free Hit correctly picks a blank gameweek where the
+whole squad has no fixture, and Wildcard correctly picks the gameweek
+immediately before the DGW rather than the earliest tied week. Not yet run
+against the real season's fixture list, for the same network reason as the
+phases above.
 
 ## Phase 5 — Differential finder
 

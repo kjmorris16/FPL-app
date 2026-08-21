@@ -154,3 +154,41 @@ def test_describe_recommendation_free_hit():
     text = planner.describe_recommendation(c.CHIP_FREE_HIT, entry)
     assert "GW18" in text
     assert "4" in text
+
+
+def test_top_recommendation_wildcard_tie_prefers_the_later_gameweek():
+    # Several gameweeks all seeing the same upcoming DGW within their
+    # lookahead window is the normal case, not an edge case -- rebuilding as
+    # close as possible to the swing wastes less time on a squad that isn't
+    # yet benefiting from it.
+    calendar = [
+        {"gw": 4, "wildcard_score": 2},
+        {"gw": 5, "wildcard_score": 2},
+        {"gw": 6, "wildcard_score": 2},
+    ]
+    result = planner.top_recommendation(calendar, c.CHIP_WILDCARD, {c.CHIP_WILDCARD: True})
+    assert result["gw"] == 6
+
+
+def test_top_recommendation_bench_boost_tie_prefers_the_earlier_gameweek():
+    # The opposite of Wildcard's tie-break: Bench Boost/Triple Captain
+    # values further out are a rougher guess (see valuation.py's module
+    # docstring), so among equally-good weeks the nearer, more trustworthy
+    # one wins.
+    calendar = [
+        {"gw": 4, "bench_boost_value": 5.0},
+        {"gw": 5, "bench_boost_value": 5.0},
+        {"gw": 6, "bench_boost_value": 5.0},
+    ]
+    result = planner.top_recommendation(calendar, c.CHIP_BENCH_BOOST, {c.CHIP_BENCH_BOOST: True})
+    assert result["gw"] == 4
+
+
+def test_top_n_gameweeks_wildcard_tie_orders_later_gameweeks_first():
+    calendar = [
+        {"gw": 4, "wildcard_score": 2},
+        {"gw": 5, "wildcard_score": 2},
+        {"gw": 6, "wildcard_score": 1},
+    ]
+    top = planner.top_n_gameweeks(calendar, c.CHIP_WILDCARD, n=3)
+    assert [e["gw"] for e in top] == [5, 4, 6]
