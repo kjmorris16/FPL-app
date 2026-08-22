@@ -85,6 +85,31 @@ with st.sidebar:
             st.session_state["refresh_messages"] = dash_refresh.refresh_all(manager_id=manager_id, league_id=league_id)
         st.rerun()
 
+    # Previous-season per-player stats back up early-season projections when
+    # this season's own gameweek_stats is still too thin to tell players
+    # apart (see Phase 2's shrinkage fallback) -- fetched automatically the
+    # first time there's a player list but no stats stored yet, the same way
+    # the old Pre-Season Squad tab used to before it was removed. Without
+    # this, nothing ever populates that table and every projection is stuck
+    # at the flat no-signal baseline. Guarded by its own session_state flag
+    # (a ~700-request pull, not something to silently retry every rerun).
+    preseason_coverage = dash_data.load_preseason_coverage()
+    if (
+        preseason_coverage["total_players"] > 0
+        and preseason_coverage["players_with_stats"] == 0
+        and not st.session_state.get("preseason_auto_fetch_attempted")
+    ):
+        st.session_state["preseason_auto_fetch_attempted"] = True
+        with st.spinner("Fetching last season's stats for every player -- one API call each, can take a couple of minutes..."):
+            st.session_state["refresh_messages"] = dash_refresh.refresh_previous_season_stats()
+        st.rerun()
+    elif preseason_coverage["total_players"] > 0 and preseason_coverage["players_with_stats"] == 0:
+        st.caption("Previous-season stats fetch didn't store any data -- projections will look flat until it succeeds.")
+        if st.button("🔄 Retry fetching previous-season stats", use_container_width=True):
+            with st.spinner("Fetching last season's stats for every player -- one API call each, can take a couple of minutes..."):
+                st.session_state["refresh_messages"] = dash_refresh.refresh_previous_season_stats()
+            st.rerun()
+
     if st.session_state.get("refresh_messages"):
         for message in st.session_state["refresh_messages"]:
             st.write(message)

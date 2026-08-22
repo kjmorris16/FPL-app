@@ -503,6 +503,25 @@ only ever attempts once per session. A fresh deploy (or a just-woken
 free-tier app) shows real data on first view instead of every tab's "no
 data yet" message until someone thinks to click Refresh.
 
+**Previous-season stats auto-fetch, restored** (`src/dashboard/app.py`
+sidebar, `dash_refresh.refresh_previous_season_stats`). **Bug fixed:** Phase
+2's early-season fallback (see the "before/very early in a season" edge
+case above) depends on `player_previous_season_stats` being populated, but
+the only thing that had ever triggered that fetch was the old Pre-Season
+Squad tab's own auto-fetch-on-open -- and when that tab was removed, the
+trigger went with it, with nothing left in the app to ever call
+`refresh_previous_season_stats()`. `player_previous_season_stats` stayed
+permanently empty, so the shrinkage fallback had nothing to fall back to
+and every early-season projection stayed stuck at the flat 0.3
+sub-appearance figure regardless of the Phase 2 fix. The sidebar now
+triggers this fetch itself -- automatically, once per session, the first
+time there's a player list (from the main refresh) but no previous-season
+stats stored yet -- with a manual "Retry fetching previous-season stats"
+button if that automatic attempt comes back empty (e.g. a flaky API call).
+It's still deliberately kept separate from the main "Refresh data" button
+(~700 API calls, one per player, so it isn't something to repeat on every
+weekly refresh once the data's there).
+
 Read-heavy `st.cache_data` functions are the norm here, but one non-obvious
 Streamlit behavior was worth catching before shipping: `st.rerun()` right
 after refreshing discards anything written earlier in that same script run,
