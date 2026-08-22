@@ -33,6 +33,14 @@ def blended_per90(
     return recent_weight * recent_rate + (1 - recent_weight) * season_rate
 
 
+def per90_from_totals(total_stat: float | int | None, total_minutes: int) -> float:
+    """Same per-90 rate as `per90`, but from a single season-totals row (e.g.
+    `player_previous_season_stats`) rather than a list of gameweek rows."""
+    if not total_minutes:
+        return 0.0
+    return (total_stat or 0) / total_minutes * 90
+
+
 def total_minutes(history_rows: list[dict]) -> int:
     return sum((r.get("minutes") or 0) for r in history_rows)
 

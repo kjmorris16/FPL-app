@@ -42,6 +42,10 @@ def get_all_player_histories(conn: sqlite3.Connection, as_of_gw: int | None = No
     return histories
 
 
+def get_previous_season_stats(conn: sqlite3.Connection) -> dict[int, dict]:
+    return {row["player_id"]: dict(row) for row in conn.execute("SELECT * FROM player_previous_season_stats")}
+
+
 def get_team_fixtures_map(conn: sqlite3.Connection, start_gw: int, end_gw: int) -> dict[int, dict[int, list[dict]]]:
     """team_id -> gameweek -> list of {opponent_team, is_home, difficulty}.
 

@@ -161,3 +161,56 @@ def test_get_horizon_projection_sums_across_gameweeks(db_conn):
     total, avg_conf = data_access.get_horizon_projection(db_conn, 101, start_gw=10, num_gws=3)
     assert total == 12.0
     assert round(avg_conf, 3) == round((0.8 + 0.6 + 1.0) / 3, 3)
+
+
+def _insert_prev_season_stats(conn, player_id, minutes, expected_goals=0.0, expected_assists=0.0, saves=0, bonus=0):
+    conn.execute(
+        "INSERT INTO player_previous_season_stats "
+        "(player_id, season_name, minutes, expected_goals, expected_assists, saves, bonus) "
+        "VALUES (?, '2024/25', ?, ?, ?, ?, ?)",
+        (player_id, minutes, expected_goals, expected_assists, saves, bonus),
+    )
+
+
+def test_early_season_projections_differ_by_player_using_previous_season_form(db_conn):
+    """Regression test: before/very early in a season, gameweek_stats is
+    empty league-wide, which used to make every player's position average
+    (and therefore starts_ratio, xG90, xA90) collapse to 0.0 -- so every
+    outfield player's projection collapsed to the same flat 0.3 (just the
+    sub-appearance points), regardless of position, quality, or fixture.
+    A prolific forward with a strong previous season should now project
+    meaningfully higher than a fringe defender with a weak one, using last
+    season's per-90 rates as the fallback baseline instead of a same-season
+    average that's itself meaningless this early.
+    """
+    _setup_common(db_conn)
+    _insert_player(db_conn, 101, team_id=1, element_type=c.FWD, web_name="StarStriker")
+    _insert_player(db_conn, 102, team_id=1, element_type=c.DEF, web_name="FringeDef")
+    # No gameweek_stats rows for anyone -- current season hasn't produced data yet.
+    _insert_prev_season_stats(db_conn, 101, minutes=3200, expected_goals=22.0, expected_assists=6.0, bonus=25)
+    _insert_prev_season_stats(db_conn, 102, minutes=900, expected_goals=0.5, expected_assists=0.2, bonus=1)
+    _insert_fixture(db_conn, 1001, event=10, team_h=1, team_a=2)
+    db_conn.commit()
+
+    rows = projections.compute_projections(db_conn, start_gw=10, horizon_gws=1)
+    points_by_player = {r[0]: r[2] for r in rows}
+
+    assert points_by_player[101] > points_by_player[102]
+    # Not the old flat sub-appearance-only figure for either player.
+    assert points_by_player[101] != 0.3
+    assert points_by_player[102] != 0.3
+
+
+def test_early_season_projection_falls_back_to_zero_gracefully_with_no_previous_season_data(db_conn):
+    """When there's neither current- nor previous-season data at all (a
+    brand-new setup with no history table populated), there's genuinely no
+    signal to differentiate on -- the model should degrade to the same
+    flat sub-appearance figure rather than crash or invent a number."""
+    _setup_common(db_conn)
+    _insert_player(db_conn, 101, team_id=1, element_type=c.FWD, web_name="Unknown")
+    _insert_fixture(db_conn, 1001, event=10, team_h=1, team_a=2)
+    db_conn.commit()
+
+    rows = projections.compute_projections(db_conn, start_gw=10, horizon_gws=1)
+    row = next(r for r in rows if r[0] == 101)
+    assert row[2] == 0.3

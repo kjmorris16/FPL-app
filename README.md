@@ -127,6 +127,25 @@ Edge cases handled:
   needing special-cased logic).
 - **Blank gameweeks** — no fixture that gameweek means `projected_points = 0`
   with `confidence = 1.0` (it's a certain zero, not a low-confidence guess).
+- **Before/very early in a season** — `gameweek_stats` is empty league-wide,
+  so there's no same-season data to build a position's league average from.
+  **Bug fixed:** that used to make every position average silently collapse
+  to 0.0, which cascaded through the shrinkage estimator into
+  `starts_ratio = 0` for every player, zeroing out every points component
+  except the flat sub-appearance term -- so every player, regardless of
+  position, price, or fixture, projected an identical 0.3 points. The
+  fallback baseline the shrinkage estimator blends towards is now, per
+  player, their own *previous* season's per-90 rates (shrunk towards last
+  season's position average, same estimator, just fed
+  `player_previous_season_stats` totals -- `src/scoring/projections.py:_previous_season_priors`)
+  rather than a same-season league average that's itself meaningless this
+  early. As current-season history accumulates, each player's projection
+  smoothly shifts from that previous-season prior towards their actual
+  current-season form, exactly as the shrinkage estimator already did for
+  new signings mid-season. A brand-new setup with no previous-season data
+  either (nothing in `player_previous_season_stats`) still degrades
+  gracefully to the old flat figure -- there's genuinely no signal to
+  differentiate on in that case.
 
 **Confidence** (`src/scoring/confidence.py`) is based on how many minutes of
 recent history back the projection: 0 minutes → a fixed low fallback (0.15);

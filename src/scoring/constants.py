@@ -50,3 +50,16 @@ FALLBACK_CONFIDENCE_NO_HISTORY = 0.15
 
 CONFIDENCE_HIGH_THRESHOLD = 0.7
 CONFIDENCE_MEDIUM_THRESHOLD = 0.35
+
+# A full Premier League season's minutes (38 games) -- used to turn a
+# player's previous-season minutes total into a minutes-share proxy for
+# starts_ratio when current-season history is too thin to trust on its own
+# (e.g. before/very early in a season, when gameweek_stats is empty
+# league-wide and a same-season position average would collapse to zero).
+FULL_SEASON_MINUTES = 38 * 90
+
+# Below this many previous-season minutes, a player's own previous-season
+# rate stats are shrunk towards their position's previous-season league
+# average (same shrinkage estimator as the current-season one, applied to
+# last season's totals instead of a recent gameweek window).
+PREVIOUS_SEASON_SHRINKAGE_MINUTES = 1500
