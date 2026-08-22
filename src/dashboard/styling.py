@@ -2,6 +2,8 @@
 app.py (which has Streamlit-script side effects like `st.set_page_config()`
 at import time) so this pure logic is trivially unit-testable.
 """
+import base64
+
 import pandas as pd
 
 # Fixture difficulty 1 (easiest) -> 5 (hardest), a ColorBrewer-style
@@ -58,47 +60,49 @@ def style_fixture_columns(df: pd.DataFrame, gw_labels: list[str]):
 # short_name not listed here (e.g. a newly promoted club not accounted for)
 # falls back to a neutral grey rather than erroring.
 TEAM_COLORS = {
-    "ARS": ("#EF0107", "white"),
-    "AVL": ("#670E36", "white"),
-    "BOU": ("#DA291C", "white"),
-    "BRE": ("#E30613", "white"),
-    "BHA": ("#0057B8", "white"),
-    "BUR": ("#6C1D45", "white"),
-    "CHE": ("#034694", "white"),
-    "CRY": ("#1B458F", "white"),
-    "EVE": ("#003399", "white"),
-    "FUL": ("#000000", "white"),
-    "LEE": ("#FFFFFF", "black"),
-    "LIV": ("#C8102E", "white"),
-    "MCI": ("#6CABDD", "black"),
-    "MUN": ("#DA291C", "white"),
-    "NEW": ("#241F20", "white"),
-    "NFO": ("#DD0000", "white"),
-    "SUN": ("#EB172B", "white"),
-    "TOT": ("#132257", "white"),
-    "WHU": ("#7A263A", "white"),
-    "WOL": ("#FDB913", "black"),
+    "ARS": "#EF0107",
+    "AVL": "#670E36",
+    "BOU": "#DA291C",
+    "BRE": "#E30613",
+    "BHA": "#0057B8",
+    "BUR": "#6C1D45",
+    "CHE": "#034694",
+    "CRY": "#1B458F",
+    "EVE": "#003399",
+    "FUL": "#000000",
+    "LEE": "#FFFFFF",
+    "LIV": "#C8102E",
+    "MCI": "#6CABDD",
+    "MUN": "#DA291C",
+    "NEW": "#241F20",
+    "NFO": "#DD0000",
+    "SUN": "#EB172B",
+    "TOT": "#132257",
+    "WHU": "#7A263A",
+    "WOL": "#FDB913",
 }
-DEFAULT_TEAM_COLOR = ("#9E9E9E", "white")
+DEFAULT_TEAM_COLOR = "#9E9E9E"
+
+# A simple jersey silhouette (collar notch, two sleeves, body) in a 24x24
+# viewBox -- filled per-club below rather than relying on the fixed-color
+# shirt emoji, which ignores CSS/text color entirely and can only ever
+# render its own built-in white/grey. A thin dark outline keeps light kits
+# (e.g. all-white) visible against the table's own background.
+_SHIRT_SVG_TEMPLATE = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">'
+    '<path fill="{color}" stroke="#00000055" stroke-width="0.75" stroke-linejoin="round" '
+    'd="M4 4 L8 2 L10 4 A2 2 0 0 0 14 4 L16 2 L20 4 L18 8 L16 7 L16 20 L8 20 L8 7 L6 8 Z"/>'
+    "</svg>"
+)
 
 
-def team_kit_cell_style(kit_value: str) -> str:
-    """`kit_value` is expected to be "<shirt emoji> <team short_name>" (see
-    `style_kit_column`) -- the team code is pulled from the end of the
-    string so this can style the cell using its own displayed text rather
-    than needing a second, hidden column."""
-    if not kit_value:
-        return ""
-    team_short = kit_value.rsplit(" ", 1)[-1].upper()
-    background, text_color = TEAM_COLORS.get(team_short, DEFAULT_TEAM_COLOR)
-    return f"background-color: {background}; color: {text_color}; text-align: center; font-weight: 600"
-
-
-def style_kit_column(df: pd.DataFrame, kit_column: str = "Kit"):
-    """Colors `kit_column` (if present) per the team code embedded in its
-    own text -- a lightweight stand-in for an actual shirt graphic, since
-    `st.dataframe` cell styling can only color/format text, not render
-    arbitrary shapes."""
-    if kit_column not in df.columns:
-        return df
-    return df.style.format(precision=1).map(team_kit_cell_style, subset=[kit_column])
+def kit_icon_data_uri(team_short: str) -> str:
+    """A small shirt icon filled with `team_short`'s own colour (falling
+    back to a neutral grey for an unrecognized code), encoded as a data URI
+    for `st.column_config.ImageColumn`. This is what makes the shirt itself
+    change colour per team, rather than a fixed-color emoji sat on a
+    colored cell background."""
+    color = TEAM_COLORS.get((team_short or "").upper(), DEFAULT_TEAM_COLOR)
+    svg = _SHIRT_SVG_TEMPLATE.format(color=color)
+    encoded = base64.b64encode(svg.encode("utf-8")).decode("ascii")
+    return f"data:image/svg+xml;base64,{encoded}"

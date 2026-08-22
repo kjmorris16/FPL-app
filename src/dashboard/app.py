@@ -21,7 +21,7 @@ from src.config import DEFAULT_LEAGUE_ID, DEFAULT_MANAGER_ID
 from src.dashboard import data as dash_data
 from src.dashboard import manual_squad
 from src.dashboard import refresh as dash_refresh
-from src.dashboard.styling import style_kit_column
+from src.dashboard.styling import kit_icon_data_uri
 from src.db import init_db
 
 # A fresh deploy (or a first local run) has no data/fpl.db at all -- data/ is
@@ -179,7 +179,7 @@ with tab_squad:
                     "Player": p["web_name"],
                     "Pos": POSITION_NAMES.get(p["element_type"], "?"),
                     "Team": p["team_short"],
-                    "Kit": f"👕 {p['team_short']}",
+                    "Kit": kit_icon_data_uri(p["team_short"]),
                     "Role": role,
                     "Price": f"£{(p['now_cost'] or 0) / 10:.1f}m",
                     f"GW{squad_section['gw']} Proj": round(p["projected_points_gw"], 1),
@@ -187,8 +187,11 @@ with tab_squad:
                 }
             )
         st.dataframe(
-            style_kit_column(pd.DataFrame(rows)),
-            column_config={"Recent form": st.column_config.BarChartColumn("Recent form (last 6 GWs)", y_min=0)},
+            pd.DataFrame(rows),
+            column_config={
+                "Kit": st.column_config.ImageColumn("Kit", width="small"),
+                "Recent form": st.column_config.BarChartColumn("Recent form (last 6 GWs)", y_min=0),
+            },
             hide_index=True,
             use_container_width=True,
         )

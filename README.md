@@ -536,14 +536,17 @@ correctly to the goalkeeper for a bench-GK row and the midfielder for a
 starting-XI row. Verified with a synthetic case that deliberately includes
 both.
 
-**Kit column** (`src/dashboard/styling.py:style_kit_column`): a colored
-swatch per player's team on the My Squad table, in the same pandas-Styler
-style as the fixture-difficulty colors elsewhere in the app --
-`st.dataframe` can only color/format cell text, not render an actual shirt
-graphic, so this is a shirt emoji on a background colored to each club's
-approximate primary color (`TEAM_COLORS`, not official hex codes, just
-close enough to read at a glance), with a neutral grey fallback for any
-club not in that mapping.
+**Kit column** (`src/dashboard/styling.py:kit_icon_data_uri`): a small shirt
+icon per player's team on the My Squad table, rendered via
+`st.column_config.ImageColumn`. **Bug fixed:** this used to be a shirt emoji
+on a cell background colored to the club's color -- but the emoji itself is
+a fixed-color glyph that ignores CSS, so the shirt you actually looked at
+never changed color, only the background behind it did. The shirt is now a
+small SVG (built inline, filled per club and base64-encoded into a data
+URI) so the shirt itself is the colored element, on the table's normal
+background -- approximate primary colors (`TEAM_COLORS`, not official hex
+codes, just close enough to read at a glance), with a neutral grey fallback
+for any club not in that mapping.
 
 **Verification**: an `AppTest`-based test (`tests/test_dashboard_app.py`)
 confirms the app renders without raising against an empty database, with
