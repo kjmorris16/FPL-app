@@ -44,6 +44,45 @@ def build_rationale(combo, fixture_context: dict[int, float]) -> str:
     return " ".join(sentences)
 
 
+_WEAK_LINK_REASON_TEXT = {
+    "replacement_gap": "a meaningfully better same-position, similar-price option is available in the pool",
+    "form_decline": "their underlying output (xG + xA per 90) has dropped off over their last {window} games versus their season rate",
+    "fixture_swing": "their next {horizon} fixtures are tougher than their season-average run so far",
+    "minutes_risk": "rising rotation/minutes risk -- a fitness doubt, fading recent starts, or a team-mate now playing more than them",
+}
+
+
+def build_weak_link_flagged_reason(player_name: str, reason_key: str) -> str:
+    """Names the single modifier that drove `player_name`'s weakness score
+    (see `weakness._dominant_reason`), rather than dumping all four numbers
+    on the reader."""
+    text = _WEAK_LINK_REASON_TEXT[reason_key].format(window=c.FORM_DECLINE_WINDOW_GWS, horizon=c.WEAKNESS_HORIZON_GWS)
+    return f"{player_name} is this week's weak link: {text}."
+
+
+def build_weak_link_replacement_reason(
+    weak_link_name: str,
+    replacement: dict,
+    net_gain: float,
+    horizon: int,
+    fixture_difficulty: float | None = None,
+    hit_cost: int = 0,
+) -> str:
+    """Why the incoming player is the fix: their projection edge over the
+    outgoing player, price, and fixture run."""
+    price = replacement["now_cost"] / 10
+    sentence = (
+        f"{replacement['web_name']} (£{price:.1f}m) projects {net_gain:+.1f} more points than "
+        f"{weak_link_name} over the next {horizon} GWs"
+    )
+    fixture_desc = describe_fixture_run(fixture_difficulty)
+    if fixture_desc:
+        sentence += f", helped by {fixture_desc}"
+    if hit_cost:
+        sentence += f", clearing the -{hit_cost} hit cost with a real margin"
+    return sentence + "."
+
+
 def build_captain_rationale(player_name: str, projected_points: float, fixture_difficulty: float | None) -> str:
     """One-line reasoning for a captain/vice-captain pick. `projected_points`
     is the single-gameweek projection driving the pick -- it already blends

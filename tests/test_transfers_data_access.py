@@ -97,3 +97,34 @@ def test_get_average_fixture_difficulty_no_fixtures_returns_none(db_conn):
     db_conn.execute("INSERT INTO teams (id, name) VALUES (1, 'Home')")
     db_conn.commit()
     assert data_access.get_average_fixture_difficulty(db_conn, team_id=1, start_gw=10, num_gws=2) is None
+
+
+def test_upsert_squad_weakness_stores_and_orders_by_rank(db_conn):
+    db_conn.execute("INSERT INTO teams (id, name) VALUES (1, 'Home United')")
+    db_conn.execute("INSERT INTO players (id, team_id, element_type, web_name) VALUES (101, 1, 4, 'Sharpe'), (102, 1, 4, 'Weakling')")
+    db_conn.commit()
+    now = "2026-01-01T00:00:00Z"
+    rows = [
+        (1213466, 10, 101, 1.0, 0.2, 0.1, 0.0, 0.6, 2, now),
+        (1213466, 10, 102, 4.0, 1.0, 0.5, 0.3, 2.6, 1, now),
+    ]
+    data_access.upsert_squad_weakness(db_conn, rows)
+    db_conn.commit()
+
+    stored = data_access.get_squad_weakness(db_conn, 1213466, 10)
+    assert [r["player_id"] for r in stored] == [102, 101]  # ordered by weakness_rank
+    assert stored[0]["weakness_score"] == 2.6
+
+
+def test_upsert_squad_weakness_overwrites_on_conflict(db_conn):
+    db_conn.execute("INSERT INTO teams (id, name) VALUES (1, 'Home United')")
+    db_conn.execute("INSERT INTO players (id, team_id, element_type, web_name) VALUES (101, 1, 4, 'Sharpe')")
+    db_conn.commit()
+    now = "2026-01-01T00:00:00Z"
+    data_access.upsert_squad_weakness(db_conn, [(1213466, 10, 101, 1.0, 0.2, 0.1, 0.0, 0.6, 1, now)])
+    data_access.upsert_squad_weakness(db_conn, [(1213466, 10, 101, 2.0, 0.4, 0.2, 0.0, 1.2, 1, now)])
+    db_conn.commit()
+
+    stored = data_access.get_squad_weakness(db_conn, 1213466, 10)
+    assert len(stored) == 1
+    assert stored[0]["weakness_score"] == 1.2

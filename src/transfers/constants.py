@@ -15,6 +15,28 @@ HIT_MARGIN_MULTIPLIER = 1.5  # gain must be >= 1.5x the hit cost to be "worth it
 DEFAULT_RANKING_HORIZON_GWS = 5
 REPORTED_HORIZONS_GWS = (1, 3, 5)
 
+# --- Weak-link scoring (Part 1: `src/transfers/weakness.py`) ---
+# Configurable weights for `weakness.compute_weakness_score` -- kept as named
+# constants, not inline literals, so they can be tuned once there's a few
+# real gameweeks of results to compare the ranking against.
+WEAKNESS_REPLACEMENT_GAP_WEIGHT = 0.5
+WEAKNESS_FORM_DECLINE_WEIGHT = 0.25
+WEAKNESS_FIXTURE_SWING_WEIGHT = 0.15
+WEAKNESS_MINUTES_RISK_WEIGHT = 0.1
+
+WEAKNESS_HORIZON_GWS = 5  # "3-5 gameweek projection" -- the fuller end, matching HIT_DECISION_HORIZON_GWS below
+PRICE_BAND_TENTHS = 10  # "similar price band" for the replacement_gap comparison -- +/- £1.0m
+FORM_DECLINE_WINDOW_GWS = 6  # "last 4-6 games" for the form-decline modifier
+
+# How much higher a same-position teammate's recent starts_ratio must be
+# than this player's own before it counts as a real rotation/new-signing
+# threat rather than ordinary week-to-week squad rotation noise.
+MINUTES_RISK_TEAMMATE_OVERTAKE_MARGIN = 0.25
+
+# If the single weakest player has no replacement worth making, how many
+# further players down the weakness ranking to try before giving up.
+WEAK_LINK_CANDIDATES_TO_TRY = 3
+
 # How many top single-swap candidates (per outgoing player) to consider when
 # building 2-transfer combos. Keeps the search tractable: rather than a full
 # pairwise search over every possible replacement pair, we take each squad

@@ -73,6 +73,30 @@ def get_projection_totals(conn: sqlite3.Connection, player_ids: list[int], start
     return totals
 
 
+def upsert_squad_weakness(conn: sqlite3.Connection, rows: list[tuple]) -> None:
+    conn.executemany(
+        """
+        INSERT INTO squad_weakness (manager_id, gw, player_id, replacement_gap, form_decline,
+            fixture_swing, minutes_risk, weakness_score, weakness_rank, computed_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(manager_id, gw, player_id) DO UPDATE SET
+            replacement_gap=excluded.replacement_gap, form_decline=excluded.form_decline,
+            fixture_swing=excluded.fixture_swing, minutes_risk=excluded.minutes_risk,
+            weakness_score=excluded.weakness_score, weakness_rank=excluded.weakness_rank,
+            computed_at=excluded.computed_at
+        """,
+        rows,
+    )
+
+
+def get_squad_weakness(conn: sqlite3.Connection, manager_id: int, gw: int) -> list[dict]:
+    rows = conn.execute(
+        "SELECT * FROM squad_weakness WHERE manager_id = ? AND gw = ? ORDER BY weakness_rank",
+        (manager_id, gw),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def get_average_fixture_difficulty(conn: sqlite3.Connection, team_id: int, start_gw: int, num_gws: int) -> float | None:
     """Average fixture difficulty (from the team's own perspective) over
     [start_gw, start_gw + num_gws - 1]. None if the team has no fixtures in

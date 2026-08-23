@@ -261,6 +261,74 @@ LLM-generated -- it's built directly from the same gain and
 fixture-difficulty numbers the optimizer already computed, which keeps it
 reproducible and testable.
 
+### Weak-link detection (`src/transfers/weakness.py`)
+
+`optimizer.generate_combos` ranks every possible swap equally -- useful, but
+it doesn't explicitly say *who* on the squad is actually the problem this
+week. `weakness.py` adds a two-part algorithm that does, as a complementary
+recommendation that sits alongside the combination search (not a
+replacement for it).
+
+**Part 1 -- weak link score.** Every squad player gets a `replacement_gap`
+(the best 3-5 GW projection among same-position, similar-price-band players
+not already owned, minus their own -- `PRICE_BAND_TENTHS`, default +/-£1.0m),
+plus three modifiers built entirely from data already ingested:
+- **Form trend** -- recent (last `FORM_DECLINE_WINDOW_GWS`, default 6 games)
+  xG90+xA90 vs season-long rate; a real decline scores positive, flat/improving
+  form clamps to 0.
+- **Fixture swing** -- upcoming average fixture difficulty vs the team's
+  season-average so far; a tougher-than-usual run scores positive.
+- **Minutes risk** -- 1 minus Phase 2's own availability multiplier (fitness
+  doubts/injuries), plus how far recent starts_ratio has fallen below the
+  season rate, plus how far a same-position club-mate's recent starts_ratio
+  now exceeds this player's own (once that gap clears
+  `MINUTES_RISK_TEAMMATE_OVERTAKE_MARGIN`). There's no dedicated "new
+  signing arrived" data feed, so a club-mate picking up notably more recent
+  minutes stands in for that -- catches any rotation threat, a new arrival
+  included, without needing to identify transfers by name. Documented
+  simplification, not a claim of tracking actual squad-list news.
+
+These combine into `weakness_score = 0.5*replacement_gap + 0.25*form_decline
++ 0.15*fixture_swing + 0.1*minutes_risk` -- weights are named constants in
+`constants.py` (`WEAKNESS_*_WEIGHT`), not inline literals, specifically so
+they can be retuned once there's a few real gameweeks of results to compare
+against. The full ranked squad is stored in a new `squad_weakness` table
+(one row per player per gameweek the check is run) so the ranking's week-to-week
+movement stays visible, not just the latest snapshot.
+
+**Part 2 -- best transfer for the identified weak link.** Starting from the
+#1-ranked weak link, searches all same-position players within budget (sell
+price + bank), excluding the current squad and respecting the max-3-per-club
+rule, and ranks candidates by `net_gain` over the same 3-5 GW horizon. A
+hit-costing transfer only surfaces if `net_gain` clears the hit cost by
+`HIT_MARGIN_MULTIPLIER` (the same margin `optimizer.py` already uses for its
+own hit gating, reused rather than a second hardcoded threshold). If the #1
+weak link has nothing worth doing, Part 2 falls back to the #2 and #3
+weakest players (`WEAK_LINK_CANDIDATES_TO_TRY`) rather than forcing a move on
+the worst-ranked player regardless of whether a real replacement exists.
+
+**Output**: the recommendation names the specific modifier that drove the
+outgoing player's weakness score (`rationale.build_weak_link_flagged_reason`)
+and the incoming player's projection/price/fixture run
+(`rationale.build_weak_link_replacement_reason`) -- both templated the same
+way as the rest of `rationale.py`, not LLM-generated.
+
+**Quick check**:
+```bash
+python -m src.transfers.weakness_cli                     # full squad ranked by weakness_score, modifiers broken out, top recommendation
+python -m src.transfers.weakness_cli --gw 12
+python -m src.transfers.weakness_cli --free-transfers 2
+```
+Verified against a synthetic squad with one deliberately planted weak
+link (a midfielder given a strong early season, then a quiet/benched last 5
+GWs, a club-mate visibly taking over their minutes, and a tough upcoming
+fixture run against an otherwise-flat league): the tool correctly ranked
+that player #1 by a wide margin (weakness_score 25.9 vs 18.5 for the
+runner-up), attributed it to `replacement_gap` (the dominant weighted
+term), and recommended the correct same-price-band upgrade with the right
+`squad_weakness` rows persisted. Not yet checked against your real squad,
+same network restriction as every phase before it.
+
 ### Weekly routine
 
 ```bash

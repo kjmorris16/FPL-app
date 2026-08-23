@@ -199,12 +199,28 @@ CREATE TABLE IF NOT EXISTS player_previous_season_stats (
     FOREIGN KEY (player_id) REFERENCES players (id)
 );
 
+CREATE TABLE IF NOT EXISTS squad_weakness (
+    manager_id INTEGER NOT NULL,
+    gw INTEGER NOT NULL,
+    player_id INTEGER NOT NULL,
+    replacement_gap REAL,
+    form_decline REAL,
+    fixture_swing REAL,
+    minutes_risk REAL,
+    weakness_score REAL,
+    weakness_rank INTEGER,
+    computed_at TEXT,
+    PRIMARY KEY (manager_id, gw, player_id),
+    FOREIGN KEY (player_id) REFERENCES players (id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_fixtures_event ON fixtures (event);
 CREATE INDEX IF NOT EXISTS idx_gameweek_stats_gw ON gameweek_stats (gw);
 CREATE INDEX IF NOT EXISTS idx_player_projections_gw ON player_projections (gameweek);
 CREATE INDEX IF NOT EXISTS idx_my_squad_history_manager_gw ON my_squad_history (manager_id, gw);
 CREATE INDEX IF NOT EXISTS idx_chip_usage_manager ON chip_usage (manager_id);
 CREATE INDEX IF NOT EXISTS idx_league_manager_picks_league_gw ON league_manager_picks (league_id, gw);
+CREATE INDEX IF NOT EXISTS idx_squad_weakness_manager_gw ON squad_weakness (manager_id, gw);
 """
 
 # Columns added after the initial release. Applied to existing databases (created
